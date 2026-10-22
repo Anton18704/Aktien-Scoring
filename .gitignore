@@ -1,0 +1,10 @@
+# Persönliche Daten – nicht hochladen
+config/settings.toml
+aktien.db
+cache/
+# Python
+__pycache__/
+*.pyc
+.venv/
+.pytest_cache/
+pruefung_*.txt

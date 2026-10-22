@@ -1,0 +1,92 @@
+# =====================================================================
+#  Zuordnung SIC-Code (aus SEC EDGAR) -> Sektor
+# =====================================================================
+#
+#  Die Regeln werden von oben nach unten geprüft. Die erste passende
+#  Regel gewinnt. Deshalb stehen die speziellen Bereiche oben und die
+#  allgemeinen weiter unten.
+#
+#  von / bis: SIC-Bereich (beide Grenzen gehören dazu)
+#  sektor:    einer der 11 Sektoren unten
+#
+#  Der Sektor dient nur zur Markierung und Filterung. Er verändert
+#  keine Scores. In der App kannst du ihn pro Titel von Hand ändern.
+# =====================================================================
+
+sektoren:
+  - IT
+  - Kommunikation
+  - Zyklischer Konsum
+  - Basiskonsum
+  - Gesundheit
+  - Finanzwerte
+  - Industrie
+  - Grundstoffe
+  - Energie
+  - Versorger
+  - Immobilien
+
+regeln:
+  # --- Spezielle Bereiche zuerst ---
+  - {von: 1520, bis: 1531, sektor: Zyklischer Konsum}   # Wohnungsbau
+  - {von: 2830, bis: 2836, sektor: Gesundheit}          # Pharma, Biotech
+  - {von: 2840, bis: 2844, sektor: Basiskonsum}         # Seifen, Kosmetik
+  - {von: 3570, bis: 3579, sektor: IT}                  # Computer
+  - {von: 3630, bis: 3639, sektor: Zyklischer Konsum}   # Haushaltsgeräte
+  - {von: 3651, bis: 3652, sektor: Zyklischer Konsum}   # Unterhaltungselektronik
+  - {von: 3660, bis: 3699, sektor: IT}                  # Kommunikationstechnik, Halbleiter, Elektronik
+  - {von: 3710, bis: 3716, sektor: Zyklischer Konsum}   # Autos, Autoteile
+  - {von: 3751, bis: 3751, sektor: Zyklischer Konsum}   # Motorräder, Fahrräder
+  - {von: 3812, bis: 3812, sektor: Industrie}           # Rüstungselektronik
+  - {von: 3820, bis: 3829, sektor: IT}                  # Messinstrumente
+  - {von: 3840, bis: 3851, sektor: Gesundheit}          # Medizintechnik
+  - {von: 3860, bis: 3879, sektor: Zyklischer Konsum}   # Foto, Uhren
+  - {von: 4950, bis: 4959, sektor: Industrie}           # Entsorgung
+  - {von: 5120, bis: 5122, sektor: Gesundheit}          # Pharma-Großhandel
+  - {von: 5140, bis: 5149, sektor: Basiskonsum}         # Lebensmittel-Großhandel
+  - {von: 5331, bis: 5331, sektor: Basiskonsum}         # Discounter (z. B. Walmart)
+  - {von: 5399, bis: 5399, sektor: Basiskonsum}         # Warenhäuser (z. B. Costco)
+  - {von: 5400, bis: 5499, sektor: Basiskonsum}         # Lebensmittelhandel
+  - {von: 5912, bis: 5912, sektor: Basiskonsum}         # Drogerien, Apotheken
+  - {von: 6500, bis: 6553, sektor: Immobilien}          # Immobilien
+  - {von: 6798, bis: 6798, sektor: Immobilien}          # REITs
+  - {von: 7310, bis: 7319, sektor: Kommunikation}       # Werbung
+  - {von: 7370, bis: 7370, sektor: Kommunikation}       # Internetdienste (z. B. Alphabet, Meta)
+  - {von: 7371, bis: 7379, sektor: IT}                  # Software, IT-Dienste
+  - {von: 7800, bis: 7899, sektor: Kommunikation}       # Film, Unterhaltung
+  - {von: 8000, bis: 8099, sektor: Gesundheit}          # Gesundheitsdienste
+
+  # --- Allgemeine Bereiche ---
+  - {von: 100,  bis: 999,  sektor: Basiskonsum}         # Landwirtschaft
+  - {von: 1000, bis: 1099, sektor: Grundstoffe}         # Metallbergbau
+  - {von: 1200, bis: 1399, sektor: Energie}             # Kohle, Öl, Gas
+  - {von: 1400, bis: 1499, sektor: Grundstoffe}         # Steine, Erden
+  - {von: 1500, bis: 1799, sektor: Industrie}           # Bau
+  - {von: 2000, bis: 2199, sektor: Basiskonsum}         # Nahrungsmittel, Getränke, Tabak
+  - {von: 2200, bis: 2399, sektor: Zyklischer Konsum}   # Textil, Bekleidung
+  - {von: 2400, bis: 2499, sektor: Grundstoffe}         # Holz
+  - {von: 2500, bis: 2599, sektor: Zyklischer Konsum}   # Möbel
+  - {von: 2600, bis: 2699, sektor: Grundstoffe}         # Papier
+  - {von: 2700, bis: 2799, sektor: Kommunikation}       # Verlage, Druck
+  - {von: 2800, bis: 2899, sektor: Grundstoffe}         # Chemie
+  - {von: 2900, bis: 2999, sektor: Energie}             # Raffinerien
+  - {von: 3000, bis: 3099, sektor: Grundstoffe}         # Gummi, Kunststoff
+  - {von: 3100, bis: 3199, sektor: Zyklischer Konsum}   # Leder, Schuhe
+  - {von: 3200, bis: 3399, sektor: Grundstoffe}         # Glas, Zement, Metalle
+  - {von: 3400, bis: 3569, sektor: Industrie}           # Metallwaren, Maschinen
+  - {von: 3580, bis: 3659, sektor: Industrie}           # Maschinen, Elektrotechnik
+  - {von: 3700, bis: 3799, sektor: Industrie}           # Luftfahrt, Fahrzeugbau
+  - {von: 3800, bis: 3899, sektor: Industrie}           # Instrumente
+  - {von: 3900, bis: 3999, sektor: Zyklischer Konsum}   # Spielwaren, Schmuck
+  - {von: 4000, bis: 4799, sektor: Industrie}           # Transport, Logistik
+  - {von: 4800, bis: 4899, sektor: Kommunikation}       # Telekommunikation, Medien
+  - {von: 4900, bis: 4999, sektor: Versorger}           # Strom, Gas, Wasser
+  - {von: 5000, bis: 5199, sektor: Industrie}           # Großhandel
+  - {von: 5200, bis: 5999, sektor: Zyklischer Konsum}   # Einzelhandel, Restaurants
+  - {von: 6000, bis: 6799, sektor: Finanzwerte}         # Banken, Versicherungen, Holdings
+  - {von: 7000, bis: 7299, sektor: Zyklischer Konsum}   # Hotels, persönliche Dienste
+  - {von: 7300, bis: 7399, sektor: Industrie}           # Unternehmensdienste
+  - {von: 7500, bis: 7599, sektor: Zyklischer Konsum}   # Autowerkstätten, Vermietung
+  - {von: 7900, bis: 7999, sektor: Zyklischer Konsum}   # Freizeit
+  - {von: 8100, bis: 8299, sektor: Zyklischer Konsum}   # Bildung, Rechtsdienste
+  - {von: 8300, bis: 8999, sektor: Industrie}           # Ingenieur-, Beratungsdienste

@@ -1,0 +1,9 @@
+# Vorlage. Die echte Datei heißt settings.toml und wird beim ersten Start
+# über die Seite "Einstellungen" automatisch angelegt.
+
+[sec]
+email = "deine.adresse@example.com"
+app_name = "AktienScoring"
+
+[kurse]
+tiingo_api_key = ""

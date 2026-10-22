@@ -1,0 +1,175 @@
+# =====================================================================
+#  Schwellenwerte für alle Kennzahlen
+# =====================================================================
+#
+#  Diese Datei darfst du jederzeit ändern. Die App liest sie bei jedem
+#  Seitenaufruf neu ein, die Punkte werden also sofort neu berechnet.
+#
+#  Für jede Kennzahl gibt es drei Werte:
+#    bei_10: ab diesem Wert (und darüber hinaus) gibt es 10 Punkte
+#    bei_5:  bei diesem Wert gibt es 5 Punkte
+#    bei_0:  ab diesem Wert (und darüber hinaus) gibt es 0 Punkte
+#  Dazwischen wird linear interpoliert.
+#
+#  Ob "höher ist besser" oder "niedriger ist besser" gilt, ergibt sich
+#  automatisch: Ist "bei_10" größer als "bei_0", ist höher besser.
+#
+#  Prozentwerte werden als Prozentzahl eingetragen (7 bedeutet 7 %).
+#  Kommazahlen mit Punkt schreiben: 5.5 statt 5,5.
+#
+#  Achtung: "bei_5" muss zwischen "bei_10" und "bei_0" liegen.
+# =====================================================================
+
+kategorien:
+  A:
+    name: Sicherheitsmarge und Abwärtsschutz
+    kurz: Sicherheitsmarge
+    standardgewicht: 25
+  B:
+    name: Langfristiges Wachstum
+    kurz: Wachstum
+    standardgewicht: 20
+  C:
+    name: Qualität und Kapitalrendite
+    kurz: Qualität
+    standardgewicht: 15
+  D:
+    name: Gesunde Bilanz
+    kurz: Bilanz
+    standardgewicht: 20
+  E:
+    name: Persönliche Einschätzung
+    kurz: Einschätzung
+    standardgewicht: 20
+
+kennzahlen:
+
+  # ---------- A. Sicherheitsmarge und Abwärtsschutz ----------
+  fcf_rendite:
+    kategorie: A
+    name: FCF-Rendite
+    einheit: "%"
+    erklaerung: Free Cashflow (operativer Cashflow – Investitionen) der letzten 12 Monate ÷ Marktkapitalisierung
+    bei_10: 7.0
+    bei_5: 5.5
+    bei_0: 4.0
+
+  ev_ebit_historie:
+    kategorie: A
+    name: EV/EBIT vs. eigene Historie
+    einheit: "% Abw."
+    erklaerung: Abweichung des aktuellen EV/EBIT vom Median der letzten 10 Geschäftsjahre (negativ = günstiger als üblich)
+    bei_10: -20.0
+    bei_5: 0.0
+    bei_0: 20.0
+
+  ausschuettungsrendite:
+    kategorie: A
+    name: Ausschüttungsrendite
+    einheit: "%"
+    erklaerung: (Dividenden + Aktienrückkäufe – Ausgabe neuer Aktien) der letzten 12 Monate ÷ Marktkapitalisierung
+    bei_10: 5.0
+    bei_5: 3.5
+    bei_0: 2.0
+
+  max_kursrueckgang:
+    kategorie: A
+    name: Maximaler Kursrückgang (5 J.)
+    einheit: "%"
+    erklaerung: Größter Fall vom Hoch zum Tief in den letzten 5 Jahren (Schlusskurse, um Splits bereinigt, ohne Dividenden)
+    bei_10: 30.0
+    bei_5: 40.0
+    bei_0: 50.0
+
+  # ---------- B. Langfristiges Wachstum ----------
+  umsatz_cagr:
+    kategorie: B
+    name: Umsatzwachstum (CAGR 5 J.)
+    einheit: "%"
+    erklaerung: Durchschnittliches jährliches Umsatzwachstum über 5 Geschäftsjahre
+    bei_10: 10.0
+    bei_5: 7.5
+    bei_0: 5.0
+
+  fcf_je_aktie_cagr:
+    kategorie: B
+    name: Wachstum FCF je Aktie (CAGR 5 J.)
+    einheit: "%"
+    erklaerung: Durchschnittliches jährliches Wachstum des Free Cashflows je verwässerter Aktie über 5 Geschäftsjahre
+    bei_10: 10.0
+    bei_5: 7.5
+    bei_0: 5.0
+
+  umsatz_bestaendigkeit:
+    kategorie: B
+    name: Beständigkeit (Jahre mit Umsatzplus)
+    einheit: "von 10"
+    erklaerung: Anzahl der Jahre mit steigendem Umsatz in den letzten 10 Geschäftsjahren
+    bei_10: 8.0
+    bei_5: 6.5
+    bei_0: 5.0
+
+  # ---------- C. Qualität und Kapitalrendite ----------
+  roic:
+    kategorie: C
+    name: ROIC (Ø 5 J.)
+    einheit: "%"
+    erklaerung: NOPAT ÷ (Eigenkapital + Finanzschulden – Cash), Durchschnitt der letzten 5 Geschäftsjahre
+    bei_10: 15.0
+    bei_5: 11.5
+    bei_0: 8.0
+
+  bruttomarge_stabilitaet:
+    kategorie: C
+    name: Stabilität der Bruttomarge
+    einheit: "Pp."
+    erklaerung: Standardabweichung der Bruttomarge über die letzten 10 Geschäftsjahre in Prozentpunkten
+    bei_10: 3.0
+    bei_5: 4.5
+    bei_0: 6.0
+
+  fcf_umwandlung:
+    kategorie: C
+    name: FCF-Umwandlung (Ø 5 J.)
+    einheit: "%"
+    erklaerung: Free Cashflow ÷ Nettogewinn über die letzten 5 Geschäftsjahre (Summe FCF ÷ Summe Nettogewinn)
+    bei_10: 90.0
+    bei_5: 80.0
+    bei_0: 70.0
+
+  # ---------- D. Gesunde Bilanz ----------
+  nettoverschuldung_ebitda:
+    kategorie: D
+    name: Nettoverschuldung / EBITDA
+    einheit: "x"
+    erklaerung: (Finanzschulden – Cash) ÷ EBITDA der letzten 12 Monate; bei Nettocash 10 Punkte
+    bei_10: 1.0
+    bei_5: 1.75
+    bei_0: 2.5
+
+  zinsdeckung:
+    kategorie: D
+    name: Zinsdeckung
+    einheit: "x"
+    erklaerung: EBIT ÷ Zinsaufwand der letzten 12 Monate; ohne Zinsaufwand 10 Punkte
+    bei_10: 10.0
+    bei_5: 7.0
+    bei_0: 4.0
+
+  current_ratio:
+    kategorie: D
+    name: Current Ratio
+    einheit: "x"
+    erklaerung: Umlaufvermögen ÷ kurzfristige Verbindlichkeiten zum letzten Bilanzstichtag
+    bei_10: 1.5
+    bei_5: 1.25
+    bei_0: 1.0
+
+  altman_z:
+    kategorie: D
+    name: Altman Z-Score (Original 1968)
+    einheit: ""
+    erklaerung: 1,2·Working Capital/Bilanzsumme + 1,4·Gewinnrücklagen/Bilanzsumme + 3,3·EBIT/Bilanzsumme + 0,6·Marktkap./Verbindlichkeiten + 1,0·Umsatz/Bilanzsumme
+    bei_10: 3.0
+    bei_5: 2.4
+    bei_0: 1.8
