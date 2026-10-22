@@ -20,9 +20,9 @@ Datei (`aktien.db`) auf deinem Laptop speichert.
 1. Auf dem Desktop den Ordner **Claude Code** anlegen (falls noch nicht vorhanden).
 2. Den Ordner öffnen, oben in die Adresszeile `cmd` tippen und Enter drücken.
    Es öffnet sich ein schwarzes Fenster in genau diesem Ordner.
-3. Dort eingeben (Adresse deines GitHub-Repositorys einsetzen):
+3. Dort eingeben:
    ```
-   git clone https://github.com/DEIN-NAME/aktien-scoring.git
+   git clone https://github.com/Anton18704/Aktien-Scoring.git
    ```
 4. Jetzt gibt es `Desktop\Claude Code\aktien-scoring`.
 
