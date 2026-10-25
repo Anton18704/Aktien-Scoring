@@ -32,11 +32,11 @@ if kategorie != "E":
                             f"{kz['zehn']:g} / {kz['fuenf']:g} / {kz['null']:g} {kz['einheit']}")
 
 auswahl = st.dataframe(df, hide_index=True, width="stretch", on_select="rerun",
-                       selection_mode="single-row", key=f"kat_tabelle_{kategorie}",
+                       selection_mode="single-row", key=g.tabellen_key("kategorie", kategorie, gewaehlt),
                        column_config={"Kategorie-Score": st.column_config.ProgressColumn(
                            "Kategorie-Score", min_value=0, max_value=10, format="%.1f")})
-zeilen = auswahl.selection.rows if auswahl and auswahl.selection else []
-if zeilen:
-    ticker = df.iloc[zeilen[0]]["Ticker"]
+zeile = g.ausgewaehlte_zeile(auswahl, df)
+if zeile is not None:
+    ticker = zeile["Ticker"]
     if st.button(f"🔍 Details zu {ticker} öffnen", type="primary"):
         g.zu_detail(ticker)

@@ -38,23 +38,25 @@ spalten = {
 }
 st.caption("Zum Sortieren auf eine Spaltenüberschrift tippen. Eine Zeile antippen, um den Titel auszuwählen.")
 auswahl = st.dataframe(df, hide_index=True, width="stretch", column_config=spalten,
-                       on_select="rerun", selection_mode="single-row", key="liste_tabelle")
+                       on_select="rerun", selection_mode="single-row",
+                       key=g.tabellen_key("liste", suche, gewaehlt))
 
-zeilen = auswahl.selection.rows if auswahl and auswahl.selection else []
-if zeilen:
-    ticker = df.iloc[zeilen[0]]["Ticker"]
-    name = df.iloc[zeilen[0]]["Name"]
+zeile = g.ausgewaehlte_zeile(auswahl, df)
+if zeile is not None:
+    ticker, name = zeile["Ticker"], zeile["Name"]
     st.markdown(f"**Ausgewählt: {name} ({ticker})**")
     b1, b2, b3 = st.columns(3)
     if b1.button("🔍 Details öffnen", type="primary", width="stretch"):
         g.zu_detail(ticker)
     if b2.button("🔄 Neu analysieren", width="stretch"):
         if g.neu_analysieren(ticker):
+            g.tabelle_zuruecksetzen("liste")   # die Reihenfolge kann sich durch neue Scores ändern
             st.rerun()
     with b3.popover("🗑️ Löschen", width="stretch"):
         st.write(f"{name} mit allen Analysen und Einschätzungen löschen?")
         if st.button("Ja, endgültig löschen", type="primary"):
             db.titel_loeschen(con, ticker)
+            g.tabelle_zuruecksetzen("liste")
             st.rerun()
 
 st.divider()

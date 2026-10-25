@@ -72,3 +72,25 @@ def neu_analysieren(ticker: str):
 def sektor_filter(key: str, alle_werte) -> list[str]:
     optionen = sorted(set(alle_werte))
     return st.multiselect("Sektor", optionen, default=[], key=key, placeholder="Alle Sektoren")
+
+
+def tabellen_key(name: str, *filter_werte) -> str:
+    """Schlüssel für eine auswählbare Tabelle.
+
+    Ändert sich ein Filter oder wurde etwas gelöscht, entsteht ein neuer Schlüssel.
+    Damit wird eine alte Zeilenauswahl verworfen und kann nicht auf einen anderen Titel rutschen.
+    """
+    version = st.session_state.get(f"{name}_version", 0)
+    return f"{name}_{version}_{abs(hash(repr(filter_werte)))}"
+
+
+def tabelle_zuruecksetzen(name: str) -> None:
+    st.session_state[f"{name}_version"] = st.session_state.get(f"{name}_version", 0) + 1
+
+
+def ausgewaehlte_zeile(auswahl, df):
+    """Die ausgewählte Zeile als Series, oder None (auch wenn die Auswahl nicht mehr zur Tabelle passt)."""
+    zeilen = auswahl.selection.rows if auswahl and auswahl.selection else []
+    if not zeilen or not 0 <= zeilen[0] < len(df):
+        return None
+    return df.iloc[zeilen[0]]
