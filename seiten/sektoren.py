@@ -6,7 +6,8 @@ import streamlit as st
 
 from kern.format import prozent, zahl
 from seiten import gemeinsam as g
-from makro_sektoren import aktualisieren, gespeichert, lade_makro_cfg, rekonstruieren
+from makro_sektoren import (aktualisieren, gespeichert, lade_makro_cfg, letzter_pruefstand, pruefstand,
+                            regeln_kennung, rekonstruieren)
 from speicher import db
 
 st.title("🧭 Sektoren & Zyklus")
@@ -28,8 +29,13 @@ if k2.button("🔄 Makrodaten aktualisieren", type="primary" if not daten else "
     with st.spinner("Lade Indikatoren (FRED), Sektor-ETFs (Yahoo) und Branchendaten (Damodaran) … ca. 1 Minute"):
         daten = aktualisieren(con)
     st.rerun()
+test = letzter_pruefstand(con)
 if not cfg.get("aktiv", True):
-    st.info("Der Multiplikator ist in config/makro.yaml ausgeschaltet – die Faktoren werden nur angezeigt.")
+    st.info("**Nur zur Information:** Der Multiplikator ist in config/makro.yaml ausgeschaltet – die Faktoren "
+            "verändern keine Scores. Grund: Der Prüfstand (unten) zeigt bisher keine Vorhersagekraft.")
+elif test and not test.get("bestanden"):
+    st.error("Achtung: Der Multiplikator ist eingeschaltet, obwohl die Regeln den Prüfstand nicht bestehen. "
+             "Empfehlung: in config/makro.yaml `aktiv: false` setzen.")
 for h in daten.get("hinweise", []):
     st.warning(h)
 
@@ -154,6 +160,46 @@ else:
                    "Abschwung → Erholung. Der große Punkt ist der aktuelle Stand.")
     else:
         st.caption("Für diesen Sektor gibt es noch zu wenige Monate mit Daten.")
+
+# ------------------------------------------------------------ Prüfstand
+st.subheader("🧪 Prüfstand")
+st.caption("Rechnet die Sektorfaktoren für jeden Monat seit 2008 genau so nach, wie die App sie heute berechnet "
+           "(nur damals veröffentlichte Daten, Glättung, Bestätigung, Bewertungsbonus), und vergleicht sie mit der "
+           "Rendite der Sektor-ETFs in den folgenden 12 Monaten relativ zum S&P 500. Nach jeder Änderung an "
+           "config/makro.yaml erneut starten.")
+if st.button("🧪 Prüfstand starten (ca. 1 Minute)"):
+    balken = st.progress(0.0, text="Rechne Monate nach …")
+    test = pruefstand(con, fortschritt=lambda x: balken.progress(x, text=f"Rechne Monate nach … {x * 100:.0f} %"))
+    st.rerun()
+if not test:
+    st.info("Noch kein Prüfstand gelaufen.")
+elif test.get("grund"):
+    st.warning(f"Prüfstand nicht möglich: {test['grund']}")
+else:
+    if test.get("regeln") != regeln_kennung():
+        st.warning("Die Regeln in config/makro.yaml wurden seit diesem Test geändert – bitte erneut starten.")
+    (st.success if test["bestanden"] else st.error)(
+        f"**{'Bestanden' if test['bestanden'] else 'Nicht bestanden'}** – Test vom {test['stand'][:10]}, "
+        f"{test['anzahl']} Sektor-Monate {test['von']}–{test['bis']}, Korrelation Faktor ↔ Rendite "
+        f"{zahl(test['korrelation'], 3)}")
+    for pr in test["pruefungen"]:
+        st.markdown(f"{'✅' if pr['ok'] else '❌'} {pr['text']}")
+    tab = pd.DataFrame([{
+        "Phase": d["name"], "Faktor": d["faktor"], "Sektor-Monate": d["anzahl"],
+        "Ø Rendite vs. S&P 500 (12 M)": None if d["mittel"] is None else round(d["mittel"], 1),
+        "Median": None if d["median"] is None else round(d["median"], 1),
+        "Markt geschlagen": None if d["treffer"] is None else f"{d['treffer']:.0f} %",
+    } for d in test["je_phase"].values()])
+    st.dataframe(tab, hide_index=True, width="stretch")
+    h = test["haelften"]
+    st.caption(
+        f"Erste Hälfte ({h['erste']['von']}–{h['erste']['bis']}): Faktor > 1 im Schnitt "
+        f"{prozent(h['erste']['faktor_hoch'])}, Faktor < 1 {prozent(h['erste']['faktor_tief'])}. "
+        f"Zweite Hälfte ({h['zweite']['von']}–{h['zweite']['bis']}): {prozent(h['zweite']['faktor_hoch'])} vs. "
+        f"{prozent(h['zweite']['faktor_tief'])}. Alle Werte relativ zum S&P 500 – dass sie meist negativ sind, liegt "
+        "an der Stärke der großen Tech-Werte im Index; entscheidend sind die Unterschiede zwischen den Phasen. "
+        "Grenzen: überlappende 12-Monats-Zeiträume (weniger unabhängige Beobachtungen als es scheint), teils "
+        "nachträglich korrigierte FRED-Daten, Sektor-ETFs statt Einzelaktien.")
 
 # ------------------------------------------------------------ Karten je Sektor
 def ampel(z):

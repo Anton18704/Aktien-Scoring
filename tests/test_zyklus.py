@@ -203,3 +203,22 @@ def test_glaettung_daempft_einzelausreisser():
     glatt = zyklus.indikator_auswerten("x", "X", monatsreihe(werte), glaettung=3)
     assert glatt.wert == pytest.approx(110.0)
     assert roh.wert == pytest.approx(130.0)
+
+
+def test_vergleichszeitraum_je_indikator():
+    """Zinsen mit 30 statt 10 Jahren vergleichen: eine lange Niedrigzinsphase verzerrt den 10-Jahres-Schnitt."""
+    werte = [6.0] * 240 + [1.0] * 108 + [5.0] * 12          # 20 J. hoch, 9 J. Nullzins, zuletzt 5 %
+    reihe = monatsreihe(werte)
+    cfg = {"indikatoren": {"z": {"name": "Zins", "umrechnung": "niveau"}}, "historie_jahre": 10, "richtung_monate": 6}
+    kurz = zyklus.staende_zum_stichtag({"z": reihe}, cfg)["z"].z_niveau
+    cfg["indikatoren"]["z"]["historie_jahre"] = 30
+    lang = zyklus.staende_zum_stichtag({"z": reihe}, cfg)["z"].z_niveau
+    assert kurz > 2 and lang < kurz        # im 30-Jahres-Vergleich wirkt 5 % viel weniger extrem
+
+
+def test_multiplikator_aus_veraendert_nichts():
+    import auswertung
+    faktor = {"faktor": 0.75}
+    assert auswertung.mit_makro(60.0, faktor, aktiv=False) == 60.0
+    assert auswertung.mit_makro(60.0, faktor, aktiv=True) == 45.0
+    assert auswertung.mit_makro(90.0, {"faktor": 1.3}, aktiv=True) == 100.0

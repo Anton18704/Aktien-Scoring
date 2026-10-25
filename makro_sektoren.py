@@ -120,8 +120,14 @@ def _bestaetigen_live(con, sektoren: dict, cfg: dict, monat: str) -> dict:
 
 
 def aktualisieren(con) -> dict:
-    """Holt alle Daten, berechnet die Sektorfaktoren und speichert sie. Liefert das gespeicherte Ergebnis."""
+    """Holt alle Daten, berechnet die Sektorfaktoren und speichert sie. Liefert das gespeicherte Ergebnis.
+
+    Wurden die Regeln (makro.yaml) seit der letzten Rückrechnung geändert, wird der Verlauf zuerst neu
+    nachgerechnet – sonst würde die Bestätigungsregel auf Phasen nach alten Regeln aufbauen.
+    """
     cfg = lade_makro_cfg()
+    if db.einstellung(con, "rekonstruktion_regeln") not in (None, regeln_kennung()):
+        rekonstruieren(con)
     reihen, fehler = lade_reihen(cfg)
     hinweise = []
     if fehler:
@@ -129,7 +135,11 @@ def aktualisieren(con) -> dict:
                         "FRED-Indikatoren nicht abrufbar: " + "; ".join(fehler[:5]) + (" …" if len(fehler) > 5 else ""))
     dam, dam_hinweise = sektordaten()
     hinweise += dam_hinweise
-    sektoren = sektoren_berechnen(cfg, zyklus.staende_zum_stichtag(reihen, cfg), dam, lade_etf_kurse(cfg))
+    staende = zyklus.staende_zum_stichtag(reihen, cfg)
+    unbrauchbar = [f"{s.name}: {s.grund}" for s in staende.values() if s.grund]
+    if unbrauchbar:
+        hinweise.append(f"{len(unbrauchbar)} Indikator(en) werden nicht verwendet – " + "; ".join(unbrauchbar))
+    sektoren = sektoren_berechnen(cfg, staende, dam, lade_etf_kurse(cfg))
     jetzt = datetime.now()
     sektoren = _bestaetigen_live(con, sektoren, cfg, jetzt.strftime("%Y-%m"))
     ergebnis = {"stand": jetzt.isoformat(timespec="seconds"), "hinweise": hinweise, "sektoren": sektoren}
@@ -164,8 +174,70 @@ def rekonstruieren(con, monate: int = 36) -> int:
     for stichtag, sektoren in je_monat:
         zeilen += _verlaufszeilen(sektoren, stichtag.strftime("%Y-%m"), "rekonstruiert")
     db.sektor_verlauf_ersetzen_rekonstruiert(con, zeilen)
+    db.einstellung_setzen(con, "rekonstruktion_regeln", regeln_kennung())
     return len(stichtage)
 
 
 def gespeichert(con) -> dict | None:
     return db.einstellung(con, EINSTELLUNG)
+
+
+# ---------------------------------------------------------------- Prüfstand
+
+PRUEFSTAND = "pruefstand"
+
+
+def regeln_kennung() -> str:
+    """Prüfsumme von makro.yaml – zeigt an, ob sich die Regeln seit dem letzten Test geändert haben."""
+    import hashlib
+    return hashlib.md5(MAKRO_DATEI.read_bytes()).hexdigest()[:10]
+
+
+def pruefstand(con, start: str = "2008-01-31", horizont_monate: int = 12, fortschritt=None) -> dict:
+    """Rechnet die Sektorfaktoren für jeden Monat seit ``start`` genau so nach, wie die App sie live
+    berechnet (nur damals veröffentlichte Daten, Glättung, Bestätigungsregel, Bewertungsbonus), und
+    vergleicht sie mit der Rendite der Sektor-ETFs in den folgenden Monaten relativ zum S&P 500."""
+    from daten.kurse import von_yfinance
+    from kern import pruefstand as ps
+
+    cfg = lade_makro_cfg()
+    reihen, _ = lade_reihen(cfg)
+    dam, _ = sektordaten()
+    etf_taeglich = {}
+    for sektor, sc in cfg["sektoren"].items():
+        try:
+            etf_taeglich[sektor] = von_yfinance(sc["etf"], jahre=30).close
+        except Exception:
+            etf_taeglich[sektor] = None
+    spy = von_yfinance("SPY", jahre=30).close.resample("ME").last()
+    etf_monat = {s: (k.resample("ME").last() if k is not None else None) for s, k in etf_taeglich.items()}
+
+    letzter = pd.Timestamp.today().normalize() - pd.offsets.MonthEnd(horizont_monate + 1)
+    monate = pd.date_range(start, letzter, freq="ME")
+    je_monat = []
+    for i, m in enumerate(monate):
+        staende = zyklus.staende_zum_stichtag(reihen, cfg, m, VEROEFFENTLICHUNG_MONATE)
+        je_monat.append((m, sektoren_berechnen(cfg, staende, dam, etf_taeglich, m)))
+        if fortschritt:
+            fortschritt((i + 1) / len(monate))
+    monate_b = int(cfg.get("bestaetigung_monate", 1))
+    zeilen = []
+    for sektor in cfg["sektoren"]:
+        gueltig = zyklus.bestaetigte_phasen([m[sektor]["phase"] for _, m in je_monat], monate_b)
+        kurse = etf_monat.get(sektor)
+        for (m, sektoren), phase in zip(je_monat, gueltig):
+            e = zyklus.phase_setzen(sektoren[sektor], phase, cfg)
+            ende = m + pd.offsets.MonthEnd(horizont_monate)
+            if kurse is None or any(pd.isna(x.get(t)) for x in (kurse, spy) for t in (m, ende)):
+                continue
+            rel = ((kurse[ende] / kurse[m]) / (spy[ende] / spy[m]) - 1) * 100
+            zeilen.append({"monat": m, "sektor": sektor, "phase": e["phase"], "faktor": e["faktor"], "rel": rel})
+    ergebnis = ps.auswerten(pd.DataFrame(zeilen), cfg["phasen"])
+    ergebnis.update({"stand": datetime.now().isoformat(timespec="seconds"), "regeln": regeln_kennung(),
+                     "horizont_monate": horizont_monate})
+    db.einstellung_setzen(con, PRUEFSTAND, ergebnis)
+    return ergebnis
+
+
+def letzter_pruefstand(con) -> dict | None:
+    return db.einstellung(con, PRUEFSTAND)

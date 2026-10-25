@@ -28,14 +28,18 @@ if suche:
 if gewaehlt:
     df = df[df["Sektor"].isin(gewaehlt)]
 df = df.sort_values("Gesamtscore", ascending=False, na_position="last").reset_index(drop=True)
+_, makro_aktiv = auswertung.makro_stand(con)
+if not makro_aktiv and "ohne Makro" in df.columns:
+    df = df.drop(columns=["ohne Makro"])          # Gesamtscore ist dann ohnehin ohne Makro
 
 kurz = {k: s["kategorien"][k]["kurz"] for k in KATEGORIEN}
 spalten = {
     "Gesamtscore": st.column_config.ProgressColumn("Gesamtscore", min_value=0, max_value=100, format="%.1f",
-                                                   help="mit Sektorfaktor (Makro), höchstens 100"),
+                                                   help="mit Sektorfaktor (falls in config/makro.yaml eingeschaltet), höchstens 100"),
     "ohne Makro": st.column_config.NumberColumn("ohne Makro", format="%.1f", help="Gesamtscore ohne Sektorfaktor"),
     "Sektorfaktor": st.column_config.NumberColumn("Faktor", format="%.2f",
-                                                  help="Sektorfaktor aus der Zyklusuhr (Seite Sektoren & Zyklus)"),
+                                                  help="Sektorfaktor aus der Zyklusuhr (Seite Sektoren & Zyklus). "
+                                                       "Wirkt nur, wenn er in config/makro.yaml eingeschaltet ist."),
     **{kurz[k]: st.column_config.NumberColumn(f"{k} {kurz[k]}", format="%.1f", help=s["kategorien"][k]["name"] + " (0–10)")
        for k in KATEGORIEN},
     "Hinweis": st.column_config.TextColumn("Hinweis", width="medium"),

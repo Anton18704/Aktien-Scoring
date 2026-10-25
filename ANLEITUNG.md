@@ -150,9 +150,20 @@ Die Sektor-Zuordnung steht in `config/sic_sektoren.yaml`.
 - **Sonderfälle:** Nettocash → 10 Punkte (Nettoverschuldung/EBITDA, Entschuldungsdauer);
   Nettoschulden bei negativem FCF → 0 Punkte (Entschuldungsdauer); kein Zinsaufwand ausgewiesen →
   10 Punkte nur ohne Finanzschulden, sonst wird die Zinsdeckung ausgelassen.
+- **Wichtig – Sektorfaktor derzeit nur zur Information:** Der Prüfstand (Seite „Sektoren & Zyklus“) hat
+  gezeigt, dass die Zyklusuhr 2008–2025 keine Vorhersagekraft hatte (Korrelation Faktor ↔ spätere
+  Rendite ≈ –0,05; „Erholung“ schnitt nicht besser ab als „Boom“). Deshalb ist der Multiplikator
+  ausgeschaltet (`aktiv: false` in `config/makro.yaml`) und verändert keine Scores. Erst wieder
+  einschalten, wenn geänderte Regeln den Prüfstand bestehen.
+- **Prüfstand:** rechnet die Sektorfaktoren für jeden Monat seit 2008 exakt wie live nach (nur damals
+  veröffentlichte Daten) und vergleicht sie mit der Rendite der Sektor-ETFs in den folgenden 12 Monaten
+  relativ zum S&P 500. Bestanden nur, wenn (1) Faktor > 1 in beiden Hälften des Zeitraums besser abschnitt
+  als Faktor < 1, (2) die Korrelation mindestens +0,05 beträgt und (3) die Phase mit dem höchsten Faktor
+  besser abschnitt als die mit dem niedrigsten.
 - **Sektorfaktor (Makro, antizyklisch):** jeder Sektor startet bei 1,0. Rund 25 Indikatoren von FRED
-  (Zinsen, Zinskurve, Kreditaufschläge, Konjunktur, Rohstoffe, Konsum, Housing …) werden je Sektor
-  ausgewertet: **Niveau** (über/unter dem 10-Jahres-Schnitt) und **Richtung** (letzte 6 Monate).
+  (Zinsen, Zinskurve, Kreditaufschlag Baa, Konjunktur, Rohstoffe, Konsum, Housing …) werden je Sektor
+  ausgewertet: **Niveau** (über/unter dem 10-Jahres-Schnitt; Zinsen: 30 Jahre, weil die letzten 10 Jahre die
+  Nullzinsphase enthalten) und **Richtung** (letzte 6 Monate). Basiskonsum: Lebensmittel-Preisspanne.
   Daraus folgt die Phase: Erholung 1,25 · Abschwung 1,05 · Aufschwung 0,90 · Boom/Wende 0,75 · Neutral 1,00.
   Dazu ±0,10 für die Bewertung des Sektors (Damodaran-KGV vs. eigene Historie, ETF-Kurs vs. 10-Jahres-Trend).
   Begrenzt auf 0,7–1,3. **Gesamtscore = Score ohne Makro × Sektorfaktor** (höchstens 100); der Score

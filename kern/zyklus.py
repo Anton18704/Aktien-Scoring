@@ -103,7 +103,7 @@ def staende_zum_stichtag(reihen: dict[str, pd.Series], cfg: dict, stichtag: pd.T
         if stichtag is not None:
             grenze = stichtag - pd.DateOffset(months=verzoegerung_monate)
             reihe = reihe.loc[:grenze]
-        staende[id_] = indikator_auswerten(id_, ind["name"], reihe, jahre, monate, einheit,
+        staende[id_] = indikator_auswerten(id_, ind["name"], reihe, int(ind.get("historie_jahre", jahre)), monate, einheit,
                                            heute=heute, max_alter_monate=max_alter + verzoegerung_monate,
                                            glaettung=glaettung)
     return staende

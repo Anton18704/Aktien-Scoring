@@ -22,7 +22,9 @@
 #  auf der Seite "Sektoren".
 # =====================================================================
 
-aktiv: true             # false = Sektorfaktoren werden nur angezeigt, nicht angewendet
+aktiv: false            # true = Gesamtscore × Sektorfaktor; false = Faktoren werden nur angezeigt
+                        # Ausgeschaltet, weil der Prüfstand (Seite "Sektoren & Zyklus") bisher keine
+                        # Vorhersagekraft zeigt. Erst wieder einschalten, wenn die Regeln den Test bestehen.
 
 faktor_min: 0.7
 faktor_max: 1.3
@@ -42,7 +44,7 @@ bewertung:
   max_bonus: 0.10
   etf_spanne: 30          # Abweichung des ETF-Kurses vom 10-Jahres-Trend (%), die als "voll teuer/günstig" gilt
 
-historie_jahre: 10        # Vergleichszeitraum für "Niveau"
+historie_jahre: 10        # Vergleichszeitraum für "Niveau" (einzelne Indikatoren können abweichen, siehe unten)
 max_alter_monate: 6       # ältere Indikatoren (z. B. eingestellte Reihen) werden nicht verwendet
 richtung_monate: 6        # Zeitraum für "Richtung"
 glaettung_monate: 3       # Niveau und Richtung aus dem gleitenden Durchschnitt (1 = ungeglättet)
@@ -55,9 +57,13 @@ bestaetigung_monate: 2    # neue Phase gilt erst, wenn sie so viele Monate in Fo
 indikatoren:
   konjunktur:     {fred: CFNAIMA3,         name: Chicago-Fed-Aktivitätsindex (3-Monats-Ø), umrechnung: niveau}
   zinskurve:      {fred: T10Y2Y,           name: Zinskurve 10 J. – 2 J., umrechnung: niveau}
-  hy_spread:      {fred: BAMLH0A0HYM2,     name: Kreditaufschlag Hochzinsanleihen, umrechnung: niveau}
-  realzins:       {fred: DFII10,           name: Realzins 10 J., umrechnung: niveau}
-  zins10:         {fred: DGS10,            name: Rendite 10-jährige US-Anleihe, umrechnung: niveau}
+  # Kreditaufschlag: Moody's-Baa-Unternehmensanleihen minus 10-jährige Staatsanleihe (Daten seit 1986).
+  # (Der Hochzinsanleihen-Spread BAMLH0A0HYM2 liefert bei FRED nur noch 3 Jahre und wird nicht mehr verwendet.)
+  kreditspread:   {fred: BAA10Y,           name: Kreditaufschlag Unternehmensanleihen (Baa), umrechnung: niveau}
+  # Zinsen werden mit 30 Jahren verglichen: die letzten 10 Jahre enthalten die Nullzinsphase und lassen
+  # heutige Zinsen sonst extremer wirken, als sie langfristig sind. (Realzins gibt es erst seit 2003.)
+  realzins:       {fred: DFII10,           name: Realzins 10 J., umrechnung: niveau, historie_jahre: 30}
+  zins10:         {fred: DGS10,            name: Rendite 10-jährige US-Anleihe, umrechnung: niveau, historie_jahre: 30}
   oel:            {fred: DCOILWTICO,       name: Ölpreis WTI, umrechnung: jahresrate}
   gas:            {fred: DHHNGSP,          name: Erdgaspreis Henry Hub, umrechnung: jahresrate}
   kupfer:         {fred: PCOPPUSDM,        name: Kupferpreis, umrechnung: jahresrate}
@@ -75,11 +81,15 @@ indikatoren:
   # Housing
   baugenehmigungen: {fred: PERMIT,         name: Baugenehmigungen, umrechnung: jahresrate}
   baubeginne:     {fred: HOUST,            name: Baubeginne, umrechnung: jahresrate}
-  hypozins:       {fred: MORTGAGE30US,     name: Hypothekenzins 30 J., umrechnung: niveau}
+  hypozins:       {fred: MORTGAGE30US,     name: Hypothekenzins 30 J., umrechnung: niveau, historie_jahre: 30}
   hauspreise:     {fred: CSUSHPINSA,       name: Hauspreise (Case-Shiller), umrechnung: jahresrate}
   hausangebot:    {fred: MSACSR,           name: Angebot neuer Häuser (Monate), umrechnung: niveau}
   # Abgeleitet: Verbraucherpreise minus Erzeugerpreise (Preissetzungsmacht / Margen)
-  margenspanne:   {differenz: [cpi, ppi],  name: Verbraucher- minus Erzeugerpreise}
+  # Preisspanne der Lebensmittelhersteller: Verbraucherpreise Lebensmittel minus Erzeugerpreise verarbeitete
+  # Lebensmittel (statt aller Erzeugerpreise, die stark vom Ölpreis getrieben sind)
+  cpi_lebensmittel: {fred: CPIUFDSL,       name: Verbraucherpreise Lebensmittel, umrechnung: jahresrate}
+  ppi_lebensmittel: {fred: WPU02,          name: Erzeugerpreise verarbeitete Lebensmittel, umrechnung: jahresrate}
+  margenspanne:   {differenz: [cpi_lebensmittel, ppi_lebensmittel], name: Lebensmittel-Preisspanne (Verbraucher- minus Erzeugerpreise)}
 
 # ---------------------------------------------------------------------
 #  Sektoren: welche Indikatoren zählen, und wann sind sie "gut"?
@@ -93,14 +103,14 @@ sektoren:
       - {id: it_auftraege, gut_wenn: hoch, gewicht: 2}
       - {id: realzins,     gut_wenn: niedrig}
       - {id: konjunktur,     gut_wenn: hoch}
-      - {id: hy_spread,    gut_wenn: niedrig, gewicht: 0.5}
+      - {id: kreditspread,    gut_wenn: niedrig, gewicht: 0.5}
   Kommunikation:
     etf: XLC
     indikatoren:
       - {id: konsumklima,  gut_wenn: hoch}
       - {id: einzelhandel, gut_wenn: hoch}
       - {id: realzins,     gut_wenn: niedrig}
-      - {id: hy_spread,    gut_wenn: niedrig, gewicht: 0.5}
+      - {id: kreditspread,    gut_wenn: niedrig, gewicht: 0.5}
   Zyklischer Konsum:
     etf: XLY
     indikatoren:
@@ -123,7 +133,7 @@ sektoren:
     etf: XLF
     indikatoren:
       - {id: zinskurve,        gut_wenn: hoch, gewicht: 2}
-      - {id: hy_spread,        gut_wenn: niedrig}
+      - {id: kreditspread,        gut_wenn: niedrig}
       - {id: kreditstandards,  gut_wenn: niedrig}
       - {id: baugenehmigungen, gut_wenn: hoch, gewicht: 0.5}
   Industrie:
