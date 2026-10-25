@@ -36,7 +36,8 @@ def bericht(ticker: str) -> str:
     for k, liste in fd.bilanz.items():
         w = next((x for x in liste if tag and abs((x.ende - tag).days) <= 5), None)
         if w:
-            z.append(f"  {k:<28} {betrag(w.wert, fd.waehrung):>20}   {w.quelle}")
+            anzeige = f"{w.wert:,.0f} Stück" if k.startswith("aktien") else betrag(w.wert, fd.waehrung)
+            z.append(f"  {k:<28} {anzeige:>20}   {w.quelle}")
     if fd.aktien_aktuell:
         z.append(f"\nAktien: {fd.aktien_aktuell.wert:,.0f} ({fd.aktien_aktuell.quelle})")
     if fd.kurs_aktuell:

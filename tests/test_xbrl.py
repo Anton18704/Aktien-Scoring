@@ -120,3 +120,16 @@ def test_summenkonzept_wertpapiere():
     })
     fd, _ = xbrl.finanzdaten_aus(facts)
     assert fd.bilanz["kurzfr_wertpapiere"][0].wert == 50
+
+
+def test_veraltete_12_monats_werte_werden_entfernt():
+    """Wie bei Apple: Zinsaufwand nur bis 2023 gemeldet, alles andere bis 2026."""
+    facts = facts_mit({
+        "us-gaap:Revenues": ("USD", [fakt(1000, "2025-01-01", "2025-12-31", "2026-02-01", "10-K")]),
+        "us-gaap:InterestExpense": ("USD", [fakt(30, "2023-01-01", "2023-12-31", "2024-02-01", "10-K")]),
+    })
+    fd, hinweise = xbrl.finanzdaten_aus(facts)
+    assert "zinsaufwand" not in fd.ttm
+    assert "umsatz" in fd.ttm
+    assert any("Zinsaufwand" in h for h in hinweise)
+    assert fd.jahre["zinsaufwand"][0].wert == 30     # Jahreswerte bleiben für die Historie erhalten

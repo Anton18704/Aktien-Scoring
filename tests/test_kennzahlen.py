@@ -237,11 +237,6 @@ def test_zinsdeckung(fd_basis):
     assert k.zinsdeckung(fd_basis).rohwert == pytest.approx(10)
 
 
-def test_zinsdeckung_ohne_zinsaufwand(fd_basis):
-    del fd_basis.ttm["zinsaufwand"]
-    assert k.zinsdeckung(fd_basis).fixpunkte == 10
-
-
 def test_current_ratio(fd_basis):
     assert k.current_ratio(fd_basis).rohwert == pytest.approx(1.5)
 
@@ -265,3 +260,43 @@ def test_alle_berechnen_liefert_14(fd_basis):
     ergebnisse = k.alle_berechnen(fd_basis)
     assert len(ergebnisse) == 14
     assert {e.schluessel for e in ergebnisse} == set(__import__("kern.konfig", fromlist=["x"]).lade_schwellen()["kennzahlen"])
+
+
+# ------------------------------------------------------------ Korrekturen nach dem Echtdaten-Test
+
+def test_schulden_nur_im_jahresbericht(fd_basis):
+    """Wie bei Caterpillar: Schulden zum Quartalsstichtag fehlen, im letzten 10-K vorhanden."""
+    fd_basis.bilanz = {k: v for k, v in fd_basis.bilanz.items()
+                       if k not in ("ltd_langfristig", "ltd_kurzfristig", "commercial_paper")}
+    fd_basis.bilanz["ltd_langfristig"] = [w(300, "2025-06-30")]
+    fd_basis.bilanz["kurzfr_kredite"] = [w(50, "2025-06-30")]
+    s, quelle = k.finanzschulden(fd_basis, date(2025, 12, 31))
+    assert s == 350
+    assert "Schulden zum 30.06.2025" in quelle
+
+
+def test_schulden_zu_alt_werden_nicht_verwendet(fd_basis):
+    fd_basis.bilanz = {"ltd_langfristig": [w(300, "2023-12-31")]}
+    s, _ = k.finanzschulden(fd_basis, date(2025, 12, 31))
+    assert s == 0
+
+
+def test_tilgungen_12_monate_als_ersatz():
+    fd = k.Finanzdaten()
+    fd.bilanz = {"ltd_langfristig": [w(300, "2025-12-31")], "ltd_faellig_12m": [w(70, "2025-12-31")]}
+    s, quelle = k.finanzschulden(fd, date(2025, 12, 31))
+    assert s == 370 and "Tilgungen" in quelle
+
+
+def test_zinsdeckung_ohne_zinsaufwand_aber_mit_schulden(fd_basis):
+    del fd_basis.ttm["zinsaufwand"]
+    e = k.zinsdeckung(fd_basis)
+    assert e.fixpunkte is None and e.rohwert is None
+    assert "nicht (mehr) separat" in e.grund
+
+
+def test_zinsdeckung_schuldenfrei_gibt_zehn(fd_basis):
+    del fd_basis.ttm["zinsaufwand"]
+    for kz in ("ltd_langfristig", "ltd_kurzfristig", "commercial_paper"):
+        del fd_basis.bilanz[kz]
+    assert k.zinsdeckung(fd_basis).fixpunkte == 10

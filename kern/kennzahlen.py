@@ -121,11 +121,24 @@ def finanzschulden(fd: Finanzdaten, datum: date) -> tuple[float, str]:
       langfristiger Teil  = LongTermDebtNoncurrent, sonst LongTermDebt – kurzfristiger Teil
       kurzfristiger Teil  = DebtCurrent (enthält alles Kurzfristige), sonst
                             LongTermDebtCurrent + ShortTermBorrowings/CommercialPaper
+    Fehlt der kurzfristige Teil der langfristigen Schulden ganz, werden ersatzweise die
+    Tilgungen der nächsten 12 Monate verwendet.
+
+    Manche Firmen (z. B. Caterpillar) melden Schulden in Quartalsberichten nur unter
+    eigenen Feldnamen. Gibt es zum Stichtag keine Angabe, wird der letzte Stand der
+    vergangenen 13 Monate verwendet und in der Quelle vermerkt.
     Fehlen alle Angaben, werden 0 Finanzschulden angenommen.
     """
-    b = lambda k: bilanzwert(fd, k, datum)  # noqa: E731
+    stand = _schulden_stichtag(fd, datum)
+    if stand is None:
+        return 0.0, "keine Finanzschulden ausgewiesen"
+    b = lambda k: bilanzwert(fd, k, stand)  # noqa: E731
     gesamt, lang, kurz_ltd = b("ltd_gesamt"), b("ltd_langfristig"), b("ltd_kurzfristig")
     kurz_gesamt, kredite, cp = b("schulden_kurzfristig_gesamt"), b("kurzfr_kredite"), b("commercial_paper")
+    faellig = None
+    if kurz_ltd is None and kurz_gesamt is None and gesamt is None and lang is not None:
+        faellig = b("ltd_faellig_12m")
+        kurz_ltd = faellig
 
     if lang is not None:
         lang_teil = lang.wert
@@ -143,8 +156,26 @@ def finanzschulden(fd: Finanzdaten, datum: date) -> tuple[float, str]:
         elif cp is not None:
             kurz_teil += cp.wert
 
-    quelle = _quellen(gesamt, lang, kurz_ltd, kurz_gesamt, kredite, cp) or "keine Finanzschulden ausgewiesen"
+    quelle = _quellen(gesamt, lang, kurz_ltd, kurz_gesamt, kredite, cp)
+    if faellig is not None:
+        quelle += "; kurzfristiger Teil ersatzweise = Tilgungen der nächsten 12 Monate"
+    if abs((stand - datum).days) > 5:
+        quelle = f"Schulden zum {stand:%d.%m.%Y} (zum {datum:%d.%m.%Y} nicht im Standardformat gemeldet); " + quelle
     return lang_teil + kurz_teil, quelle
+
+
+SCHULD_KONZEPTE = ("ltd_gesamt", "ltd_langfristig", "ltd_kurzfristig", "schulden_kurzfristig_gesamt",
+                   "kurzfr_kredite", "commercial_paper")
+
+
+def _schulden_stichtag(fd: Finanzdaten, datum: date, max_tage: int = 400) -> date | None:
+    """Stichtag mit Schuldenangaben: ``datum`` selbst oder der letzte frühere (höchstens ``max_tage`` zurück)."""
+    kandidaten = [w.ende for k in SCHULD_KONZEPTE for w in fd.bilanz.get(k, [])
+                  if -max_tage <= (w.ende - datum).days <= 5]
+    if not kandidaten:
+        return None
+    nah = [d for d in kandidaten if abs((d - datum).days) <= 5]
+    return min(nah, key=lambda d: abs((d - datum).days)) if nah else max(kandidaten)
 
 
 def liquide_mittel(fd: Finanzdaten, datum: date) -> tuple[float | None, str]:
@@ -545,6 +576,13 @@ def zinsdeckung(fd: Finanzdaten) -> Ergebnis:
         return e
     e.datenstand = _iso(ebit.ende)
     if zins is None or zins.wert <= 0:
+        tag = stichtag(fd)
+        schulden = finanzschulden(fd, tag)[0] if tag else 0.0
+        if schulden > 0:
+            e.quelle = _quellen(ebit)
+            e.grund = (f"Zinsaufwand nicht (mehr) separat ausgewiesen, obwohl Finanzschulden von "
+                       f"{betrag(schulden, fd.waehrung)} bestehen")
+            return e
         e.fixpunkte = 10.0
         e.quelle = _quellen(ebit)
         e.details = f"EBIT {betrag(ebit.wert, fd.waehrung)}, kein Zinsaufwand ausgewiesen"

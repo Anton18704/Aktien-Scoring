@@ -44,7 +44,9 @@ ZEITRAUM = {
                        "ifrs-full:AdjustmentsForDepreciationAndAmortisationExpense",
                        "ifrs-full:DepreciationAndAmortisationExpense"],
     "zinsaufwand": ["us-gaap:InterestExpense", "us-gaap:InterestExpenseNonoperating", "us-gaap:InterestExpenseDebt",
-                    "us-gaap:InterestAndDebtExpense", "ifrs-full:InterestExpense", "ifrs-full:FinanceCosts"],
+                    "us-gaap:InterestAndDebtExpense", "ifrs-full:InterestExpense", "ifrs-full:FinanceCosts",
+                    # Ersatz, wenn der Aufwand nicht im Standardformat gemeldet wird: gezahlte Zinsen
+                    "us-gaap:InterestPaidNet", "us-gaap:InterestPaid"],
     "steuern": ["us-gaap:IncomeTaxExpenseBenefit", "ifrs-full:IncomeTaxExpenseContinuingOperations"],
     "vorsteuergewinn": [
         "us-gaap:IncomeLossFromContinuingOperationsBeforeIncomeTaxesExtraordinaryItemsNoncontrollingInterest",
@@ -83,6 +85,7 @@ STICHTAG = {
                                     "ifrs-full:CurrentBorrowingsAndCurrentPortionOfNoncurrentBorrowings"],
     "kurzfr_kredite": ["us-gaap:ShortTermBorrowings", "ifrs-full:ShorttermBorrowings"],
     "commercial_paper": ["us-gaap:CommercialPaper"],
+    "ltd_faellig_12m": ["us-gaap:LongTermDebtMaturitiesRepaymentsOfPrincipalInNextTwelveMonths"],
     "aktien_bilanz": ["us-gaap:CommonStockSharesOutstanding"],
 }
 
@@ -268,6 +271,7 @@ def finanzdaten_aus(facts: dict, kurse=None) -> tuple[Finanzdaten, list[str]]:
                 fd.ttm[konzept] = ttm
                 if not ist_gj:
                     nur_jahre = False
+    _veraltete_entfernen(fd, hinweise)
     fd.ttm_ist_geschaeftsjahr = nur_jahre and bool(fd.ttm)
     if fd.ttm_ist_geschaeftsjahr:
         hinweise.append("Keine Quartalsdaten gefunden: statt der letzten 12 Monate wird das letzte Geschäftsjahr verwendet.")
@@ -301,6 +305,33 @@ def finanzdaten_aus(facts: dict, kurse=None) -> tuple[Finanzdaten, list[str]]:
             hinweise.append(f"Kurs in {kurse.waehrung}, Abschluss in {waehrung}: Kennzahlen mit "
                             "Marktkapitalisierung werden ohne Währungsumrechnung ausgelassen.")
     return fd, hinweise
+
+
+VERALTET_TAGE = 200
+
+
+def _veraltete_entfernen(fd: Finanzdaten, hinweise: list[str]) -> None:
+    """12-Monats-Werte, die deutlich älter sind als der Rest, nicht verwenden.
+
+    Beispiel: Apple weist den Zinsaufwand seit 2023 nicht mehr separat aus. Ohne diese
+    Prüfung würde der Wert von 2023 als "letzte 12 Monate" gelten.
+    """
+    if not fd.ttm:
+        return
+    neuestes = max(w.ende for w in fd.ttm.values())
+    for konzept, w in list(fd.ttm.items()):
+        if (neuestes - w.ende).days > VERALTET_TAGE:
+            del fd.ttm[konzept]
+            hinweise.append(f"{KONZEPT_NAMEN.get(konzept, konzept)}: zuletzt für den Zeitraum bis "
+                            f"{w.ende:%d.%m.%Y} gemeldet – zu alt, wird nicht verwendet.")
+
+
+KONZEPT_NAMEN = {
+    "umsatz": "Umsatz", "bruttogewinn": "Bruttogewinn", "herstellkosten": "Herstellungskosten", "ebit": "EBIT",
+    "nettogewinn": "Nettogewinn", "ocf": "Operativer Cashflow", "capex": "Investitionen", "abschreibungen":
+    "Abschreibungen", "zinsaufwand": "Zinsaufwand", "steuern": "Steuern", "vorsteuergewinn": "Vorsteuergewinn",
+    "dividenden": "Dividenden", "rueckkaeufe": "Aktienrückkäufe", "aktienausgabe": "Ausgabe neuer Aktien",
+}
 
 
 def _aktien_aktuell(fd: Finanzdaten, facts: dict, splits, hinweise: list[str]) -> None:
