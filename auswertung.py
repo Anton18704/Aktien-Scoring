@@ -51,7 +51,7 @@ def dcf_zeile(analyse: dict, erg, eingaben) -> dict:
     if erg.grund is None:
         zeile["rohwert"] = erg.sicherheitsmarge
         zeile["details"] = dcf_modell.kurzbeschreibung(erg, eingaben)
-        zeile["hinweis"] = "Wachstum teilweise manuell gesetzt" if erg.manuell else ""
+        zeile["hinweis"] = "Annahmen teilweise manuell gesetzt" if erg.manuell else ""
     zeile["quelle"] = "; ".join(x for x in (eingaben.quelle, f"Zins: {eingaben.zins_quelle} {eingaben.zins_datum}".strip(),
                                             "Annahmen: config/dcf.yaml") if x)
     zeile["datenstand"] = eingaben.datenstand

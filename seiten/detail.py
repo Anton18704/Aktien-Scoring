@@ -168,7 +168,7 @@ else:
                      if dcf_erg.eingepreistes_wachstum is not None else "")
         st.markdown(f"**Reverse DCF:** {dcf_erg.eingepreist_text}{vergleich}.")
     if dcf_erg.manuell:
-        st.caption(f"✏️ Wachstum teilweise manuell gesetzt am {manuell['zeitpunkt'][:10]}"
+        st.caption(f"✏️ Annahmen teilweise manuell gesetzt am {manuell['zeitpunkt'][:10]}"
                    + (f": „{manuell['notiz']}“" if manuell.get("notiz") else ""))
 
     sz = dcf_erg.szenarien
@@ -186,7 +186,7 @@ else:
     annahmen = pd.DataFrame({
         x.name: {
             "Gewicht": prozent(dcf_erg.gewichte.get(n, 0) * 100, 0),
-            "Start-FCF": f"{betrag(x.start_fcf, w)} ({ {'ttm': '12 Monate', 'minimum': 'Minimum', 'durchschnitt': 'Durchschnitt'}.get(x.start_art, x.start_art) })",
+            "Start-FCF": f"{betrag(x.start_fcf, w)} ({ {'ttm': '12 Monate', 'minimum': 'Minimum', 'durchschnitt': 'Durchschnitt', 'manuell': 'manuell ✏️'}.get(x.start_art, x.start_art) })",
             "Wachstum Jahre 1–5": prozent(x.wachstum) + (" ✏️" if x.wachstum_manuell else ""),
             "Langfristiges Wachstum": prozent(x.langfr_wachstum),
             "Abzinsungssatz": prozent(x.abzinsung),
@@ -218,10 +218,20 @@ else:
         st.caption(f"Fairer Wert je Aktie in {w}. Grün = über dem Kurs von {zahl(dcf_ein.kurs, 2)}, rot = darunter. "
                    "Die Mitte entspricht dem Base-Szenario.")
 
-    with st.expander("✏️ Wachstum von Hand festlegen"):
-        st.write("Überschreibt das automatische Wachstum (Jahre 1–5) je Szenario, z. B. wenn die Vergangenheit "
-                 "durch Sondereffekte verzerrt ist. Leer lassen = automatisch. Die Eingabe wird mit Datum gespeichert.")
+    with st.expander("✏️ Annahmen von Hand festlegen (Wachstum, normalisierter Free Cashflow)"):
+        st.write("Überschreibt die automatischen Werte, z. B. wenn die Vergangenheit durch Sondereffekte verzerrt "
+                 "ist. Leer lassen = automatisch. Die Eingabe wird mit Datum gespeichert.")
+        fcf_info = ", ".join([f"12 Monate {betrag(dcf_ein.fcf_ttm, w)}"] +
+                             [betrag(x, w) for x in dcf_ein.fcf_jahre]) if dcf_ein.fcf_ttm is not None else ""
         with st.form("dcf_manuell"):
+            vorschlag_fcf = (manuell or {}).get("start_fcf")
+            fcf_text = st.text_input(
+                f"Normalisierter Free Cashflow in Mrd. {w} (gilt für alle Szenarien)",
+                value="" if vorschlag_fcf is None else zahl(vorschlag_fcf / 1e9, 2),
+                placeholder=f"automatisch – zuletzt: {fcf_info}" if fcf_info else "automatisch",
+                help="Der Free Cashflow, den die Firma in einem normalen Jahr ohne Sondereffekte erzielt "
+                     "(nach Investitionen und Aktienvergütung). Beispiel: 11,5 für 11,5 Mrd.")
+            st.markdown("**Wachstum Jahre 1–5 je Szenario (%)**")
             spalten = st.columns(3)
             neu = {}
             for spalte, n in zip(spalten, ("bear", "base", "bull")):
@@ -238,11 +248,15 @@ else:
         if speichern:
             try:
                 werte = {n: (float(v.replace(",", ".")) if v.strip() else None) for n, v in neu.items()}
+                start = float(fcf_text.replace(",", ".")) * 1e9 if fcf_text.strip() else None
             except ValueError:
                 st.error("Bitte Zahlen eingeben, z. B. 4,5")
             else:
-                db.dcf_manuell_speichern(con, ticker, werte["bear"], werte["base"], werte["bull"], notiz)
-                st.rerun()
+                if start is not None and start <= 0:
+                    st.error("Der normalisierte Free Cashflow muss positiv sein.")
+                else:
+                    db.dcf_manuell_speichern(con, ticker, werte["bear"], werte["base"], werte["bull"], notiz, start)
+                    st.rerun()
         if zuruecksetzen:
             db.dcf_manuell_speichern(con, ticker, None, None, None, "zurückgesetzt")
             st.rerun()

@@ -133,3 +133,32 @@ def test_dcf_wird_live_berechnet_und_manuell_ueberschreibbar(con):
 
 def vorher_marge(fairer_wert, kurs=10):
     return (fairer_wert - kurs) / fairer_wert * 100
+
+
+def test_normalisierter_fcf_wird_gespeichert(con):
+    db.titel_speichern(con, "TEST", 1, "Test Inc", "2080", "", "Basiskonsum", "USD")
+    db.dcf_manuell_speichern(con, "TEST", None, None, None, "Sondereffekte 2025", start_fcf=11.5e9)
+    m = db.dcf_manuell(con, "TEST")
+    assert m["start_fcf"] == 11.5e9 and m["notiz"] == "Sondereffekte 2025"
+    assert "TEST" in db.dcf_manuell_alle(con)
+    db.dcf_manuell_speichern(con, "TEST", None, None, None, "zurückgesetzt")
+    assert db.dcf_manuell(con, "TEST") is None
+
+
+def test_dcf_manuell_aus_vorversion_wird_nachgeruestet(tmp_path):
+    """dcf_manuell ohne Spalte start_fcf (Version vom DCF-Start) → Spalte wird als Zahl ergänzt."""
+    import sqlite3
+    pfad = tmp_path / "vorversion.db"
+    alt = sqlite3.connect(pfad)
+    alt.executescript("""CREATE TABLE titel (ticker TEXT PRIMARY KEY);
+        CREATE TABLE dcf_manuell (id INTEGER PRIMARY KEY AUTOINCREMENT, ticker TEXT NOT NULL, zeitpunkt TEXT NOT NULL,
+            bear REAL, base REAL, bull REAL, notiz TEXT);
+        INSERT INTO titel VALUES ('KO');""")
+    alt.commit()
+    alt.close()
+    con = db.verbinden(pfad)
+    db.dcf_manuell_speichern(con, "KO", 2, 5, 7, "Test", start_fcf=11.5e9)
+    m = db.dcf_manuell(con, "KO")
+    assert isinstance(m["start_fcf"], float) and m["start_fcf"] / 1e9 == pytest.approx(11.5)
+    typ = {r[1]: r[2] for r in con.execute("PRAGMA table_info(dcf_manuell)")}["start_fcf"]
+    assert typ == "REAL"

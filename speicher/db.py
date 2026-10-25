@@ -60,6 +60,7 @@ CREATE TABLE IF NOT EXISTS dcf_manuell (
     ticker      TEXT NOT NULL REFERENCES titel(ticker) ON DELETE CASCADE,
     zeitpunkt   TEXT NOT NULL,
     bear REAL, base REAL, bull REAL,
+    start_fcf   REAL,
     notiz       TEXT
 );
 CREATE TABLE IF NOT EXISTS einstellungen (
@@ -86,10 +87,11 @@ def verbinden(pfad: Path | str = DB_DATEI) -> sqlite3.Connection:
 
 def _migrieren(con) -> None:
     """Ältere Datenbanken um neue Spalten ergänzen (bestehende Daten bleiben erhalten)."""
-    for tabelle, spalte in (("einschaetzungen", "gegenthese"), ("analysen", "dcf")):
+    for tabelle, spalte, typ in (("einschaetzungen", "gegenthese", "TEXT"), ("analysen", "dcf", "TEXT"),
+                                 ("dcf_manuell", "start_fcf", "REAL")):
         spalten = {r["name"] for r in con.execute(f"PRAGMA table_info({tabelle})")}
         if spalte not in spalten:
-            con.execute(f"ALTER TABLE {tabelle} ADD COLUMN {spalte} TEXT")
+            con.execute(f"ALTER TABLE {tabelle} ADD COLUMN {spalte} {typ}")
             con.commit()
 
 
@@ -191,26 +193,38 @@ def einschaetzungen_alle(con) -> list[dict]:
 
 # ---------------------------------------------------------------- DCF: manuelles Wachstum
 
-def dcf_manuell_speichern(con, ticker, bear, base, bull, notiz="") -> None:
-    """Neuer Eintrag (der letzte gilt). Alle drei None = zurück auf automatisch."""
-    con.execute("INSERT INTO dcf_manuell (ticker, zeitpunkt, bear, base, bull, notiz) VALUES (?,?,?,?,?,?)",
-                (ticker, jetzt(), bear, base, bull, (notiz or "").strip()))
+MANUELL_FELDER = ("bear", "base", "bull", "start_fcf")
+
+
+def dcf_manuell_speichern(con, ticker, bear, base, bull, notiz="", start_fcf=None) -> None:
+    """Neuer Eintrag (der letzte gilt). Alles None = zurück auf automatisch."""
+    con.execute("INSERT INTO dcf_manuell (ticker, zeitpunkt, bear, base, bull, start_fcf, notiz) VALUES (?,?,?,?,?,?,?)",
+                (ticker, jetzt(), bear, base, bull, start_fcf, (notiz or "").strip()))
     con.commit()
+
+
+def _manuell_zahlen(r) -> dict:
+    """Zahlenfelder sicher als float (ältere Datenbanken können sie als Text gespeichert haben)."""
+    d = dict(r)
+    for k in MANUELL_FELDER:
+        if d.get(k) is not None:
+            d[k] = float(d[k])
+    return d
 
 
 def dcf_manuell(con, ticker) -> dict | None:
     r = con.execute("SELECT * FROM dcf_manuell WHERE ticker = ? ORDER BY zeitpunkt DESC, id DESC LIMIT 1",
                     (ticker,)).fetchone()
-    if r is None or all(r[k] is None for k in ("bear", "base", "bull")):
+    if r is None or all(r[k] is None for k in MANUELL_FELDER):
         return None
-    return dict(r)
+    return _manuell_zahlen(r)
 
 
 def dcf_manuell_alle(con) -> dict[str, dict]:
     ergebnis = {}
     for r in con.execute("SELECT * FROM dcf_manuell ORDER BY zeitpunkt, id"):
-        ergebnis[r["ticker"]] = dict(r)
-    return {t: r for t, r in ergebnis.items() if any(r[k] is not None for k in ("bear", "base", "bull"))}
+        ergebnis[r["ticker"]] = _manuell_zahlen(r)
+    return {t: r for t, r in ergebnis.items() if any(r[k] is not None for k in MANUELL_FELDER)}
 
 
 # ---------------------------------------------------------------- Einstellungen

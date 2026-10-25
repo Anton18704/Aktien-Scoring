@@ -81,7 +81,7 @@ class SzenarioErgebnis:
     abzinsung: float
     exit_multiple: float
     start_fcf: float | None
-    start_art: str
+    start_art: str                        # "ttm", "minimum", "durchschnitt" oder "manuell"
     fairer_wert: float | None = None      # je Aktie
     eigenkapitalwert: float | None = None
     endwert_anteil: float | None = None   # Anteil des Endwerts am Unternehmenswert, %
@@ -161,7 +161,12 @@ class DcfErgebnis:
 
 def bewerten(e: DcfEingaben, sektor: str | None, cfg: dict, wachstum_min: float = -5.0,
              wachstum_max: float = 12.0, manuell: dict | None = None) -> DcfErgebnis:
-    """Rechnet alle drei Szenarien. ``manuell`` = {"bear": %, "base": %, "bull": %} (None = automatisch)."""
+    """Rechnet alle drei Szenarien.
+
+    ``manuell`` = {"bear": %, "base": %, "bull": %, "start_fcf": Betrag} – None heißt jeweils automatisch.
+    Ein manueller Start-FCF ("normalisierter Free Cashflow") gilt für alle drei Szenarien; die Szenarien
+    unterscheiden sich dann nur noch in Wachstum, Abzinsung und Multiple.
+    """
     erg = DcfErgebnis(kurs=e.kurs)
     if e.grund:
         erg.grund = e.grund
@@ -178,7 +183,8 @@ def bewerten(e: DcfEingaben, sektor: str | None, cfg: dict, wachstum_min: float 
     erg.sektor, branche = branchenwerte(cfg, sektor)
     erg.abzinsung_basis = abzinsungssatz(e, cfg, branche)
     manuell = manuell or {}
-    erg.manuell = any(manuell.get(n) is not None for n in SZENARIEN)
+    start_manuell = manuell.get("start_fcf")
+    erg.manuell = any(manuell.get(n) is not None for n in (*SZENARIEN, "start_fcf"))
 
     for name in SZENARIEN:
         sz = cfg["szenarien"][name]
@@ -189,7 +195,8 @@ def bewerten(e: DcfEingaben, sektor: str | None, cfg: dict, wachstum_min: float 
             name=sz.get("name", name), wachstum=float(g), wachstum_manuell=manuell.get(name) is not None,
             langfr_wachstum=float(sz["langfr_wachstum"]), abzinsung=erg.abzinsung_basis + float(sz["abzinsung_delta"]),
             exit_multiple=float(branche["exit_multiple"]) * float(sz["multiple_faktor"]),
-            start_fcf=start_fcf(e, art), start_art=art)
+            start_fcf=float(start_manuell) if start_manuell is not None else start_fcf(e, art),
+            start_art="manuell" if start_manuell is not None else art)
         if se.start_fcf is None:
             se.hinweis = "kein Free Cashflow"
         elif se.start_fcf <= 0:

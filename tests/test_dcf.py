@@ -131,3 +131,14 @@ def test_echte_konfiguration_ist_vollstaendig():
     assert erg.grund is None
     assert set(cfg["branchen"]) >= {"IT", "Kommunikation", "Zyklischer Konsum", "Basiskonsum", "Gesundheit",
                                     "Finanzwerte", "Industrie", "Grundstoffe", "Energie", "Versorger", "Immobilien"}
+
+
+def test_normalisierter_fcf_gilt_fuer_alle_szenarien():
+    e = eingaben(fcf_ttm=40.0, fcf_jahre=[30.0, 50.0, 40.0])        # verzerrt durch Sondereffekte
+    auto = dcf.bewerten(e, "Basiskonsum", CFG)
+    hand = dcf.bewerten(e, "Basiskonsum", CFG, manuell={"start_fcf": 100.0})
+    assert hand.manuell
+    assert all(x.start_fcf == 100.0 and x.start_art == "manuell" for x in hand.szenarien.values())
+    assert hand.fairer_wert > auto.fairer_wert
+    # gleiche Annahmen wie test_szenarien_geordnet_und_gewichtet → Base wieder 170
+    assert hand.szenarien["base"].fairer_wert == pytest.approx(170)

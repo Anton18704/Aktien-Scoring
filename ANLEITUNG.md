@@ -115,7 +115,8 @@ Die Sektor-Zuordnung steht in `config/sic_sektoren.yaml`.
   Basis-Wachstum = der niedrigere Wert aus Umsatz- und FCF-je-Aktie-Wachstum (geglättet, begrenzt).
   Alle Annahmen und die Branchenwerte stehen in **`config/dcf.yaml`**; Änderungen wirken sofort.
   In der Detailansicht: fairer Wert je Szenario, Annahmen-Tabelle, Empfindlichkeitstabelle,
-  Reverse DCF (welches Wachstum im Kurs steckt) und **Wachstum von Hand festlegen** pro Titel.
+  Reverse DCF (welches Wachstum im Kurs steckt) und **Annahmen von Hand festlegen** pro Titel:
+  Wachstum je Szenario und ein normalisierter Free Cashflow ohne Sondereffekte (gilt für alle Szenarien).
 - **Marktkapitalisierung:** Aktienanzahl vom Deckblatt des letzten Berichts × letzter Schlusskurs.
   Ist die Kurswährung eine andere als die Berichtswährung, werden die betroffenen
   Kennzahlen ausgelassen (keine Umrechnung).
