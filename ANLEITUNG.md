@@ -58,7 +58,7 @@ Datei (`aktien.db`) auf deinem Laptop speichert.
 | Seite | Was du dort machst |
 |---|---|
 | **Hauptliste** | Alle Titel mit Scores. Spaltenüberschrift antippen = sortieren. Zeile antippen → Details, Neu analysieren, Löschen. „Alle Titel neu analysieren“ nach Updates. Unten: Knöpfe zur Kategorieansicht. ⛔ K.o. = eine Kategorie liegt unter der K.o.-Schwelle. |
-| **Import** | Einen Ticker eingeben, oder eine CSV-Datei mit einer Spalte `Ticker` hochladen. |
+| **Import** | Firmennamen oder Ticker eintippen (z. B. „coca cola“, „general mills“, „AAPL“), Treffer auswählen, analysieren. Oder eine CSV-Datei mit einer Spalte `Ticker` hochladen. |
 | **Detailansicht** | Bei neuen Titeln zuerst deine Einschätzung (4 Regler, 1 Satz Begründung, „Ich liege falsch, wenn …“). Danach Netzdiagramm, Beiträge, alle Kennzahlen mit Rohwert, Punkten, Rechenweg, Quelle und Datenstand, Verlauf. Sektor hier von Hand ändern. |
 | **Kategorieansicht** | Alle Titel nach einer Kategorie sortiert, mit den Rohwerten. |
 | **Sektoren & Zyklus** | Zyklusuhr aller 11 Sektoren, Sektorfaktor je Sektor, jeder Makro-Indikator mit Ampel und Richtung, Sektor-KGV-Historie. Knopf „Makrodaten aktualisieren“ (ca. 1 Minute, am besten wöchentlich). |

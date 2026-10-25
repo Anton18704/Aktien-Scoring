@@ -162,3 +162,33 @@ def test_dcf_manuell_aus_vorversion_wird_nachgeruestet(tmp_path):
     assert isinstance(m["start_fcf"], float) and m["start_fcf"] / 1e9 == pytest.approx(11.5)
     typ = {r[1]: r[2] for r in con.execute("PRAGMA table_info(dcf_manuell)")}["start_fcf"]
     assert typ == "REAL"
+
+
+def test_firmensuche():
+    from analyse import suche_firmen
+    liste = {  # Reihenfolge wie in der SEC-Liste: große Firmen zuerst
+        "AAPL": {"cik": 1, "name": "Apple Inc."},
+        "KO": {"cik": 2, "name": "COCA COLA CO"},
+        "GIS": {"cik": 3, "name": "GENERAL MILLS INC"},
+        "GE": {"cik": 4, "name": "GENERAL ELECTRIC CO"},
+        "COKE": {"cik": 5, "name": "Coca-Cola Consolidated, Inc."},
+        "BRK-B": {"cik": 6, "name": "BERKSHIRE HATHAWAY INC"},
+        "PG": {"cik": 7, "name": "PROCTER & GAMBLE Co"},
+    }
+    assert suche_firmen("coca cola", liste)[0] == ("KO", "COCA COLA CO")
+    assert [t for t, _ in suche_firmen("coca", liste)] == ["KO", "COKE"]
+    assert suche_firmen("general mills", liste) == [("GIS", "GENERAL MILLS INC")]
+    assert [t for t, _ in suche_firmen("gen", liste)] == ["GIS", "GE"]       # Namensanfang, große zuerst
+    assert suche_firmen("ko", liste)[0][0] == "KO"                            # exakter Ticker zuerst
+    assert suche_firmen("brk.b", liste)[0][0] == "BRK-B"
+    assert suche_firmen("procter & gamble", liste)[0][0] == "PG"
+    assert suche_firmen("  ", liste) == [] and suche_firmen("xyzxyz", liste) == []
+
+
+def test_firmensuche_leerzeichen_und_rauschen():
+    from analyse import suche_firmen
+    liste = {"MCD": {"cik": 1, "name": "MCDONALDS CORP"}, "GIS": {"cik": 2, "name": "GENERAL MILLS INC"},
+             "PLD": {"cik": 3, "name": "Prologis, Inc."}}
+    assert suche_firmen("mc donalds", liste)[0][0] == "MCD"
+    assert [t for t, _ in suche_firmen("gis", liste)] == ["GIS"]          # kein "Prologis" bei 3 Buchstaben
+    assert [t for t, _ in suche_firmen("logis", liste)] == ["PLD"]        # ab 4 Buchstaben auch im Wort

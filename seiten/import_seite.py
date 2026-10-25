@@ -1,8 +1,9 @@
 import pandas as pd
 import streamlit as st
 
-from analyse import AnalyseFehler, analysieren, tickers_aus_csv
+from analyse import AnalyseFehler, analysieren, firmen_liste, suche_firmen, tickers_aus_csv
 from seiten import gemeinsam as g
+from speicher import db
 
 st.title("➕ Import")
 if not g.einrichtung_pruefen():
@@ -10,25 +11,49 @@ if not g.einrichtung_pruefen():
 con = g.verbindung()
 
 st.subheader("Einen Titel hinzufügen")
-with st.form("einzel"):
-    ticker = st.text_input("Ticker (z. B. AAPL, KO, CAT, BRK.B)")
-    los = st.form_submit_button("Hinzufügen und analysieren", type="primary")
-if los and ticker.strip():
-    with st.spinner(f"Analysiere {ticker.upper()} … das dauert einige Sekunden."):
+
+
+@st.cache_data(ttl=24 * 3600, show_spinner="Lade die Firmenliste der SEC …")
+def _liste():
+    return firmen_liste()
+
+
+def _analysieren(ticker: str):
+    with st.spinner(f"Analysiere {ticker} … das dauert einige Sekunden."):
         try:
             erg = analysieren(con, ticker)
         except AnalyseFehler as ex:
             st.error(str(ex))
-            erg = None
+            return
         except Exception as ex:
             st.error(f"Unerwarteter Fehler: {ex}")
-            erg = None
-    if erg:
-        st.success(f"{erg.name} ({erg.ticker}) analysiert.")
-        for h in erg.hinweise:
-            st.info(h)
-        st.session_state["ticker"] = erg.ticker
-        st.page_link(g.SEITE_DETAIL, label=f"Weiter zur Einschätzung von {erg.ticker}", icon="🔍")
+            return
+    st.success(f"{erg.name} ({erg.ticker}) analysiert.")
+    for h in erg.hinweise:
+        st.info(h)
+    st.session_state["ticker"] = erg.ticker
+    st.page_link(g.SEITE_DETAIL, label=f"Weiter zur Einschätzung von {erg.ticker}", icon="🔍")
+
+
+begriff = st.text_input("Firmenname oder Ticker", placeholder="z. B. coca cola, general mills, AAPL, BRK.B",
+                        help="Groß-/Kleinschreibung egal. Mehrere Wörter: alle müssen im Namen vorkommen.")
+if begriff.strip():
+    try:
+        treffer = suche_firmen(begriff, _liste())
+    except AnalyseFehler as ex:
+        st.error(str(ex))
+        treffer = []
+    if not treffer:
+        st.warning("Nichts gefunden. Die Liste enthält nur Firmen, die bei der US-Börsenaufsicht SEC berichten.")
+    else:
+        bekannt = {t["ticker"] for t in db.titel_alle(con)}
+        auswahl = st.radio(
+            f"{len(treffer)} Treffer{' (die ersten 15)' if len(treffer) == 15 else ''} – bitte auswählen:",
+            [t for t, _ in treffer],
+            format_func=lambda t: f"{dict(treffer)[t].title()} ({t})" + ("  ✓ schon in der Liste" if t in bekannt else ""),
+            key=f"treffer_{begriff}")
+        if st.button(f"{auswahl} hinzufügen und analysieren", type="primary"):
+            _analysieren(auswahl)
 
 st.divider()
 st.subheader("Mehrere Titel per CSV-Datei")

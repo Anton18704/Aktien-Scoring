@@ -106,6 +106,56 @@ def analysieren(con, ticker: str, frisch: bool = False) -> AnalyseErgebnis:
     return AnalyseErgebnis(r.ticker, r.name, analyse_id, r.hinweise)
 
 
+def firmen_liste() -> dict[str, dict]:
+    """Alle bei der SEC bekannten Ticker mit Firmennamen (1 Tag zwischengespeichert)."""
+    client, _ = _client()
+    try:
+        return client.ticker_liste()
+    except SecFehler as ex:
+        raise AnalyseFehler(str(ex)) from ex
+
+
+def _normal(text: str) -> str:
+    import re
+    text = text.lower().replace("&", " and ")
+    return " ".join(re.sub(r"[^a-z0-9 ]", " ", text).split())
+
+
+def suche_firmen(begriff: str, liste: dict[str, dict], max_treffer: int = 15) -> list[tuple[str, str]]:
+    """Firmen per Name oder Ticker finden. Liefert [(Ticker, Name)], beste Treffer zuerst.
+
+    Reihenfolge: exakter Ticker, Ticker beginnt mit …, Name beginnt mit …, alle Suchwörter im Namen,
+    Suchbegriff irgendwo im Namen. Bei Gleichstand zuerst die größeren Firmen (Reihenfolge der SEC-Liste).
+    """
+    b = _normal(begriff)
+    if not b:
+        return []
+    b_ticker = begriff.strip().upper().replace(".", "-")
+    woerter = b.split()
+    b_kompakt = b.replace(" ", "")
+    treffer = []
+    for rang, (ticker, info) in enumerate(liste.items()):
+        name = _normal(info["name"])
+        name_woerter = name.split()
+        if ticker == b_ticker:
+            stufe = 0
+        elif ticker.startswith(b_ticker) and len(b_ticker) >= 2:
+            stufe = 1
+        elif name.startswith(b):
+            stufe = 2
+        elif all(any(nw.startswith(w) for nw in name_woerter) for w in woerter):
+            stufe = 3
+        elif name.replace(" ", "").startswith(b_kompakt):        # "mc donalds" findet "MCDONALDS CORP"
+            stufe = 3
+        elif len(b_kompakt) >= 4 and b_kompakt in name.replace(" ", ""):
+            stufe = 4                                             # Teilwort erst ab 4 Buchstaben (weniger Rauschen)
+        else:
+            continue
+        treffer.append((stufe, rang, ticker, info["name"]))
+    treffer.sort()
+    return [(t, n) for _, _, t, n in treffer[:max_treffer]]
+
+
 def tickers_aus_csv(datei) -> list[str]:
     """Liest eine CSV-Datei mit einer Spalte 'Ticker' (Komma oder Semikolon getrennt)."""
     import pandas as pd
