@@ -28,6 +28,13 @@ if errorlevel 1 (
     exit /b 1
 )
 echo.
+if not exist ".venv\Scripts\python.exe" (
+    echo Die Python-Umgebung gibt es hier noch nicht - sie wird beim ersten Start von start.bat eingerichtet.
+    echo.
+    echo Fertig. Jetzt start.bat doppelklicken.
+    pause
+    exit /b 0
+)
 echo Pakete aktualisieren ...
 ".venv\Scripts\python.exe" -m pip install -q -r requirements.txt
 if errorlevel 1 (
