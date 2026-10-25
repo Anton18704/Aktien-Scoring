@@ -69,3 +69,15 @@ def test_alle_kennzahlen_der_konfiguration():
         assert punkte(k["zehn"], k["zehn"], k["fuenf"], k["null"]) == 10
         assert punkte(k["fuenf"], k["zehn"], k["fuenf"], k["null"]) == 5
         assert punkte(k["null"], k["zehn"], k["fuenf"], k["null"]) == 0
+
+
+def test_veraltete_schwellen_datei_wird_klar_gemeldet(tmp_path):
+    """Eine schwellen.yaml ohne neue Kennzahlen (z. B. aus einem alten Ordner kopiert) → verständliche Meldung."""
+    import yaml
+    from kern.konfig import KonfigFehler, SCHWELLEN_DATEI
+    daten = yaml.safe_load(SCHWELLEN_DATEI.read_text(encoding="utf-8"))
+    del daten["kennzahlen"]["fcf_rendite_historie"]
+    alt = tmp_path / "schwellen.yaml"
+    alt.write_text(yaml.safe_dump(daten, allow_unicode=True), encoding="utf-8")
+    with pytest.raises(KonfigFehler, match="veraltet.*fcf_rendite_historie.*git checkout -- config"):
+        lade_schwellen(alt)

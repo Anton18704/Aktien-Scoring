@@ -37,7 +37,21 @@ def lade_schwellen(pfad: Path = SCHWELLEN_DATEI) -> dict:
         if k["kategorie"] not in KATEGORIEN:
             raise KonfigFehler(f"{schluessel}: unbekannte Kategorie {k['kategorie']}.")
     daten["optionen"] = {**OPTIONEN_STANDARD, **(daten.get("optionen") or {})}
+    _pruefe_vollstaendig(daten, pfad)
     return daten
+
+
+def _pruefe_vollstaendig(daten: dict, pfad: Path) -> None:
+    """Eine veraltete schwellen.yaml (z. B. aus einem alten Ordner kopiert) klar melden statt abzustürzen."""
+    from kern.kennzahlen import ALLE
+
+    benoetigt = [f.__name__ for f in ALLE] + ["dcf_sicherheitsmarge"]
+    fehlt = [k for k in benoetigt if k not in daten["kennzahlen"]]
+    if fehlt:
+        raise KonfigFehler(
+            f"Die Datei {pfad.parent.name}/{pfad.name} ist veraltet – es fehlen die Kennzahlen: {', '.join(fehlt)}. "
+            "Lösung: App schließen, im Ordner der App 'cmd' öffnen und 'git checkout -- config' eingeben "
+            "(stellt die Konfiguration von GitHub wieder her, deine E-Mail in settings.toml bleibt erhalten).")
 
 
 OPTIONEN_STANDARD = {

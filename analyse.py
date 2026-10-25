@@ -8,7 +8,7 @@ from daten.sec import SecClient, SecFehler
 from daten.xbrl import finanzdaten_aus
 from daten.makro import risikofreier_zins
 from kern.kennzahlen import alle_berechnen, dcf_eingaben
-from kern.konfig import lade_dcf, lade_schwellen, lade_settings, sektor_fuer_sic
+from kern.konfig import KonfigFehler, lade_dcf, lade_schwellen, lade_settings, sektor_fuer_sic
 from kern.punkte import punkte_fuer
 from speicher import db
 
@@ -50,6 +50,11 @@ def kennzahlen_berechnen(ticker: str, frisch: bool = False) -> Rohdaten:
     ticker = ticker.strip().upper().replace(".", "-")
     if not ticker:
         raise AnalyseFehler("Leerer Ticker.")
+    try:
+        lade_schwellen()
+        lade_dcf()
+    except KonfigFehler as ex:
+        raise AnalyseFehler(str(ex)) from ex
     client, settings = _client()
     try:
         if frisch:
