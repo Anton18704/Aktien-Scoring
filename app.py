@@ -15,4 +15,20 @@ seiten = [
     st.Page("seiten/sektoren.py", title="Sektoren & Zyklus", icon="🧭"),
     st.Page("seiten/einstellungen.py", title="Einstellungen", icon="⚙️"),
 ]
+
+
+@st.cache_data
+def version() -> str:
+    """Stand des Codes (letzter Git-Commit), damit man sieht, ob ein Update angekommen ist."""
+    import subprocess
+    from pathlib import Path
+    try:
+        return subprocess.run(["git", "log", "-1", "--format=%h · %cd", "--date=format:%d.%m.%Y %H:%M"],
+                              cwd=Path(__file__).parent, capture_output=True, text=True, timeout=5).stdout.strip() \
+            or "unbekannt (keine Git-Kopie)"
+    except Exception:
+        return "unbekannt"
+
+
+st.sidebar.caption(f"Version: {version()}")
 st.navigation(seiten).run()
