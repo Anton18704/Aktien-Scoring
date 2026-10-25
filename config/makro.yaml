@@ -45,6 +45,8 @@ bewertung:
 historie_jahre: 10        # Vergleichszeitraum für "Niveau"
 max_alter_monate: 6       # ältere Indikatoren (z. B. eingestellte Reihen) werden nicht verwendet
 richtung_monate: 6        # Zeitraum für "Richtung"
+glaettung_monate: 3       # Niveau und Richtung aus dem gleitenden Durchschnitt (1 = ungeglättet)
+bestaetigung_monate: 2    # neue Phase gilt erst, wenn sie so viele Monate in Folge angezeigt wird (1 = sofort)
 
 # ---------------------------------------------------------------------
 #  Indikatoren (alle kostenlos von FRED, Federal Reserve Bank of St. Louis)

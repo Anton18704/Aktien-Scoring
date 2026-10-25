@@ -63,6 +63,17 @@ CREATE TABLE IF NOT EXISTS dcf_manuell (
     start_fcf   REAL,
     notiz       TEXT
 );
+CREATE TABLE IF NOT EXISTS sektor_verlauf (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    zeitpunkt   TEXT NOT NULL,
+    monat       TEXT NOT NULL,          -- JJJJ-MM
+    sektor      TEXT NOT NULL,
+    faktor REAL, grundfaktor REAL, bonus REAL,
+    phase       TEXT,
+    phase_roh   TEXT,                   -- berechnete Phase vor der Bestätigungsregel
+    niveau REAL, richtung REAL,
+    quelle      TEXT NOT NULL           -- "live" oder "rekonstruiert"
+);
 CREATE TABLE IF NOT EXISTS einstellungen (
     schluessel  TEXT PRIMARY KEY,
     wert        TEXT
@@ -88,7 +99,7 @@ def verbinden(pfad: Path | str = DB_DATEI) -> sqlite3.Connection:
 def _migrieren(con) -> None:
     """Ältere Datenbanken um neue Spalten ergänzen (bestehende Daten bleiben erhalten)."""
     for tabelle, spalte, typ in (("einschaetzungen", "gegenthese", "TEXT"), ("analysen", "dcf", "TEXT"),
-                                 ("dcf_manuell", "start_fcf", "REAL")):
+                                 ("dcf_manuell", "start_fcf", "REAL"), ("sektor_verlauf", "phase_roh", "TEXT")):
         spalten = {r["name"] for r in con.execute(f"PRAGMA table_info({tabelle})")}
         if spalte not in spalten:
             con.execute(f"ALTER TABLE {tabelle} ADD COLUMN {spalte} {typ}")
@@ -225,6 +236,37 @@ def dcf_manuell_alle(con) -> dict[str, dict]:
     for r in con.execute("SELECT * FROM dcf_manuell ORDER BY zeitpunkt, id"):
         ergebnis[r["ticker"]] = _manuell_zahlen(r)
     return {t: r for t, r in ergebnis.items() if any(r[k] is not None for k in MANUELL_FELDER)}
+
+
+# ---------------------------------------------------------------- Sektor-Verlauf
+
+_VERLAUF_FELDER = ("monat", "sektor", "faktor", "grundfaktor", "bonus", "phase", "phase_roh", "niveau", "richtung",
+                   "quelle")
+
+
+def sektor_verlauf_speichern(con, zeilen: list[dict]) -> None:
+    con.executemany(f"INSERT INTO sektor_verlauf (zeitpunkt, {', '.join(_VERLAUF_FELDER)}) "
+                    f"VALUES (?, {', '.join('?' * len(_VERLAUF_FELDER))})",
+                    [(jetzt(), *(z.get(f) for f in _VERLAUF_FELDER)) for z in zeilen])
+    con.commit()
+
+
+def sektor_verlauf_ersetzen_rekonstruiert(con, zeilen: list[dict]) -> None:
+    """Rückrechnung neu speichern (nur abgeleitete Daten – Live-Einträge bleiben unberührt)."""
+    con.execute("DELETE FROM sektor_verlauf WHERE quelle = 'rekonstruiert'")
+    sektor_verlauf_speichern(con, zeilen)
+
+
+def sektor_verlauf(con) -> list[dict]:
+    """Ein Eintrag pro Monat und Sektor: Live-Werte haben Vorrang, sonst die Rückrechnung; je Monat der neueste."""
+    rows = [dict(r) for r in con.execute("SELECT * FROM sektor_verlauf ORDER BY zeitpunkt, id")]
+    beste: dict[tuple, dict] = {}
+    for r in rows:
+        schluessel = (r["monat"], r["sektor"])
+        bisher = beste.get(schluessel)
+        if bisher is None or r["quelle"] == "live" or bisher["quelle"] != "live":
+            beste[schluessel] = r
+    return sorted(beste.values(), key=lambda r: (r["monat"], r["sektor"]))
 
 
 # ---------------------------------------------------------------- Einstellungen

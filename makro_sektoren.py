@@ -1,12 +1,14 @@
 """Makrodaten holen und Sektorfaktoren berechnen (Ablauf mit Internetzugriff).
 
 Das Ergebnis wird in der Datenbank gespeichert (Einstellung "sektorfaktoren"), damit Hauptliste
-und Detailansicht ohne Internet sofort darauf zugreifen können.
+und Detailansicht ohne Internet sofort darauf zugreifen können. Jede Aktualisierung kommt
+außerdem in den Verlauf (Tabelle sektor_verlauf).
 """
 from __future__ import annotations
 
 from datetime import datetime
 
+import pandas as pd
 import yaml
 
 from daten.damodaran import sektordaten
@@ -17,6 +19,7 @@ from speicher import db
 
 MAKRO_DATEI = CONFIG / "makro.yaml"
 EINSTELLUNG = "sektorfaktoren"
+VEROEFFENTLICHUNG_MONATE = 1   # Verzug bei der Rückrechnung: Monatsdaten erscheinen erst im Folgemonat
 
 
 def lade_makro_cfg() -> dict:
@@ -24,9 +27,11 @@ def lade_makro_cfg() -> dict:
         return yaml.safe_load(f)
 
 
-def indikatoren_auswerten(cfg: dict) -> tuple[dict[str, zyklus.IndikatorStand], list[str]]:
-    jahre, monate = int(cfg.get("historie_jahre", 10)), int(cfg.get("richtung_monate", 6))
-    reihen, staende, fehler = {}, {}, []
+# ---------------------------------------------------------------- Daten laden
+
+def lade_reihen(cfg: dict) -> tuple[dict[str, pd.Series], list[str]]:
+    """Alle Indikatoren als umgerechnete Monatsreihen."""
+    reihen, fehler = {}, []
     for id_, ind in cfg["indikatoren"].items():
         if "fred" not in ind:
             continue
@@ -39,58 +44,128 @@ def indikatoren_auswerten(cfg: dict) -> tuple[dict[str, zyklus.IndikatorStand], 
             a, b = ind["differenz"]
             if a in reihen and b in reihen:
                 reihen[id_] = (reihen[a] - reihen[b]).dropna()
-    for id_, reihe in reihen.items():
-        ind = cfg["indikatoren"][id_]
-        einheit = "%" if ind.get("umrechnung") == "jahresrate" or "differenz" in ind else ""
-        staende[id_] = zyklus.indikator_auswerten(id_, ind["name"], reihe, jahre, monate, einheit,
-                                                  max_alter_monate=int(cfg.get("max_alter_monate", 6)))
-    return staende, fehler
+    return reihen, fehler
 
 
-def etf_abweichungen(cfg: dict) -> dict[str, float | None]:
+def lade_etf_kurse(cfg: dict) -> dict[str, pd.Series | None]:
     from daten.kurse import von_yfinance
 
-    ergebnis = {}
+    kurse = {}
     for sektor, sc in cfg["sektoren"].items():
         try:
-            ergebnis[sektor] = zyklus.etf_trendabweichung(von_yfinance(sc["etf"]).close)
+            kurse[sektor] = von_yfinance(sc["etf"]).close
         except Exception:
-            ergebnis[sektor] = None
+            kurse[sektor] = None
+    return kurse
+
+
+# ---------------------------------------------------------------- Rechnen
+
+def _kgv_zum(d: dict, stichtag: pd.Timestamp | None) -> tuple[float | None, list[float]]:
+    """(KGV, Historie) – live: aktuelles KGV vs. Archiv; Rückrechnung: KGV des Jahres vs. frühere Jahre."""
+    hist = {int(j): v for j, v in (d.get("kgv_historie") or {}).items()}
+    if stichtag is None:
+        return d.get("kgv"), list(hist.values())
+    frueher = sorted(j for j in hist if j <= stichtag.year)
+    if not frueher:
+        return None, []
+    jahr = frueher[-1]
+    return hist[jahr], [hist[j] for j in frueher if j < jahr]
+
+
+def sektoren_berechnen(cfg: dict, staende: dict, dam: dict, etf_kurse: dict,
+                       stichtag: pd.Timestamp | None = None) -> dict[str, dict]:
+    sektoren = {}
+    for sektor, sc in cfg["sektoren"].items():
+        d = dam.get(sektor, {})
+        kgv, kgv_hist = _kgv_zum(d, stichtag)
+        kurse = etf_kurse.get(sektor)
+        if kurse is not None and stichtag is not None:
+            kurse = kurse.loc[:stichtag]
+        st = zyklus.sektor_auswerten(sektor, sc, staende, cfg, kgv=kgv, kgv_historie=kgv_hist, beta=d.get("beta"),
+                                     etf_abweichung=zyklus.etf_trendabweichung(kurse) if kurse is not None else None)
+        eintrag = st.als_dict()
+        eintrag["kgv_historie"] = d.get("kgv_historie", {})
+        eintrag["text"] = zyklus.faktor_text(eintrag, cfg)
+        sektoren[sektor] = eintrag
+    return sektoren
+
+
+def _verlaufszeilen(sektoren: dict, monat: str, quelle: str) -> list[dict]:
+    return [{"monat": monat, "sektor": n, "faktor": s["faktor"], "grundfaktor": s["grundfaktor"], "bonus": s["bonus"],
+             "phase": s["phase"], "phase_roh": s.get("phase_roh", s["phase"]), "niveau": s["niveau"],
+             "richtung": s["richtung"], "quelle": quelle} for n, s in sektoren.items()]
+
+
+def _bestaetigen_live(con, sektoren: dict, cfg: dict, monat: str) -> dict:
+    """Bestätigungsregel für die Live-Werte anhand der gespeicherten Vormonate."""
+    monate = int(cfg.get("bestaetigung_monate", 1))
+    if monate <= 1:
+        return sektoren
+    frueher: dict[str, list[dict]] = {}
+    for r in db.sektor_verlauf(con):
+        if r["monat"] < monat:
+            frueher.setdefault(r["sektor"], []).append(r)
+    ergebnis = {}
+    for n, e in sektoren.items():
+        hist = frueher.get(n, [])
+        if not hist:
+            ergebnis[n] = e
+            continue
+        bisher = hist[-1]["phase"]                                   # zuletzt gültige Phase
+        roh = [r.get("phase_roh") or r["phase"] for r in hist[-(monate - 1):]] + [e["phase"]]
+        bestaetigt = e["phase"] != bisher and len(roh) == monate and all(p == e["phase"] for p in roh)
+        ergebnis[n] = zyklus.phase_setzen(e, e["phase"] if bestaetigt or e["phase"] == bisher else bisher, cfg)
     return ergebnis
 
 
 def aktualisieren(con) -> dict:
     """Holt alle Daten, berechnet die Sektorfaktoren und speichert sie. Liefert das gespeicherte Ergebnis."""
     cfg = lade_makro_cfg()
-    staende, fehler = indikatoren_auswerten(cfg)
+    reihen, fehler = lade_reihen(cfg)
     hinweise = []
     if fehler:
         hinweise.append(f"{len(fehler)} von {len([i for i in cfg['indikatoren'].values() if 'fred' in i])} "
                         "FRED-Indikatoren nicht abrufbar: " + "; ".join(fehler[:5]) + (" …" if len(fehler) > 5 else ""))
     dam, dam_hinweise = sektordaten()
     hinweise += dam_hinweise
-    etf = etf_abweichungen(cfg)
-    sektoren = {}
-    for sektor, sc in cfg["sektoren"].items():
-        d = dam.get(sektor, {})
-        st = zyklus.sektor_auswerten(sektor, sc, staende, cfg, kgv=d.get("kgv"),
-                                     kgv_historie=list(d.get("kgv_historie", {}).values()),
-                                     beta=d.get("beta"), etf_abweichung=etf.get(sektor))
-        eintrag = st.als_dict()
-        eintrag["kgv_historie"] = d.get("kgv_historie", {})
-        eintrag["text"] = zyklus.faktor_text(eintrag, cfg)
-        sektoren[sektor] = eintrag
-    ergebnis = {"stand": datetime.now().isoformat(timespec="seconds"), "hinweise": hinweise, "sektoren": sektoren}
+    sektoren = sektoren_berechnen(cfg, zyklus.staende_zum_stichtag(reihen, cfg), dam, lade_etf_kurse(cfg))
+    jetzt = datetime.now()
+    sektoren = _bestaetigen_live(con, sektoren, cfg, jetzt.strftime("%Y-%m"))
+    ergebnis = {"stand": jetzt.isoformat(timespec="seconds"), "hinweise": hinweise, "sektoren": sektoren}
     db.einstellung_setzen(con, EINSTELLUNG, ergebnis)
+    db.sektor_verlauf_speichern(con, _verlaufszeilen(sektoren, jetzt.strftime("%Y-%m"), "live"))
     return ergebnis
+
+
+def rekonstruieren(con, monate: int = 36) -> int:
+    """Verlauf der letzten ``monate`` Monate aus historischen Daten nachrechnen.
+
+    Für jedes Monatsende werden nur Daten verwendet, die damals schon veröffentlicht waren
+    (ein Monat Verzug). Frühere Rekonstruktionen werden ersetzt, Live-Einträge bleiben.
+    Liefert die Anzahl der berechneten Monate.
+    """
+    cfg = lade_makro_cfg()
+    reihen, _ = lade_reihen(cfg)
+    dam, _ = sektordaten()
+    etf = lade_etf_kurse(cfg)
+    heute = pd.Timestamp.today().normalize()
+    stichtage = pd.date_range(end=heute - pd.offsets.MonthEnd(1), periods=monate, freq="ME")
+    je_monat = []
+    for stichtag in stichtage:
+        staende = zyklus.staende_zum_stichtag(reihen, cfg, stichtag, VEROEFFENTLICHUNG_MONATE)
+        je_monat.append((stichtag, sektoren_berechnen(cfg, staende, dam, etf, stichtag)))
+    monate_b = int(cfg.get("bestaetigung_monate", 1))
+    for sektor in cfg["sektoren"]:
+        gueltig = zyklus.bestaetigte_phasen([m[sektor]["phase"] for _, m in je_monat], monate_b)
+        for (_, m), phase in zip(je_monat, gueltig):
+            m[sektor] = zyklus.phase_setzen(m[sektor], phase, cfg)
+    zeilen = []
+    for stichtag, sektoren in je_monat:
+        zeilen += _verlaufszeilen(sektoren, stichtag.strftime("%Y-%m"), "rekonstruiert")
+    db.sektor_verlauf_ersetzen_rekonstruiert(con, zeilen)
+    return len(stichtage)
 
 
 def gespeichert(con) -> dict | None:
     return db.einstellung(con, EINSTELLUNG)
-
-
-def faktor_fuer(gespeichert_: dict | None, sektor: str | None) -> dict | None:
-    """Gespeicherter Stand eines Sektors oder None."""
-    if not gespeichert_ or not sektor:
-        return None
-    return gespeichert_.get("sektoren", {}).get(sektor)

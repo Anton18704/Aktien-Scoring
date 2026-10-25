@@ -57,9 +57,13 @@ class IndikatorStand:
 
 def indikator_auswerten(id_: str, name: str, reihe: pd.Series, jahre: int = 10, monate: int = 6,
                         einheit: str = "", heute: pd.Timestamp | None = None,
-                        max_alter_monate: int = 6) -> IndikatorStand:
+                        max_alter_monate: int = 6, glaettung: int = 1) -> IndikatorStand:
+    """``glaettung`` > 1: Niveau und Richtung aus dem gleitenden Durchschnitt über so viele Monate
+    (dämpft Ausreißer einzelner Monate und verhindert hektische Phasenwechsel)."""
     st = IndikatorStand(id_, name, einheit=einheit)
     reihe = reihe.dropna()
+    if glaettung > 1:
+        reihe = reihe.rolling(glaettung).mean().dropna()
     if len(reihe) < MIN_MONATE:
         st.grund = f"zu wenig Daten ({len(reihe)} Monate)"
         return st
@@ -79,6 +83,30 @@ def indikator_auswerten(id_: str, name: str, reihe: pd.Series, jahre: int = 10, 
     if len(diff) >= 12 and std_diff > 0:
         st.z_richtung = float(diff.iloc[-1]) / std_diff
     return st
+
+
+def staende_zum_stichtag(reihen: dict[str, pd.Series], cfg: dict, stichtag: pd.Timestamp | None = None,
+                         verzoegerung_monate: int = 0) -> dict[str, IndikatorStand]:
+    """Alle Indikatoren so auswerten, wie man sie zum ``stichtag`` gekannt hätte.
+
+    ``verzoegerung_monate``: Werte, die jünger sind, werden weggelassen (Veröffentlichungsverzug),
+    damit eine Rückrechnung keine Daten nutzt, die damals noch nicht bekannt waren.
+    """
+    jahre, monate = int(cfg.get("historie_jahre", 10)), int(cfg.get("richtung_monate", 6))
+    max_alter = int(cfg.get("max_alter_monate", 6))
+    glaettung = int(cfg.get("glaettung_monate", 1))
+    staende = {}
+    for id_, reihe in reihen.items():
+        ind = cfg["indikatoren"][id_]
+        einheit = "%" if ind.get("umrechnung") == "jahresrate" or "differenz" in ind else ""
+        heute = stichtag
+        if stichtag is not None:
+            grenze = stichtag - pd.DateOffset(months=verzoegerung_monate)
+            reihe = reihe.loc[:grenze]
+        staende[id_] = indikator_auswerten(id_, ind["name"], reihe, jahre, monate, einheit,
+                                           heute=heute, max_alter_monate=max_alter + verzoegerung_monate,
+                                           glaettung=glaettung)
+    return staende
 
 
 # ---------------------------------------------------------------------
@@ -204,3 +232,38 @@ def faktor_text(s: dict, cfg: dict) -> str:
     if abs(roh - s["faktor"]) > 1e-9:
         teile += f" (begrenzt auf {zahl(s['faktor'], 2)})"
     return f"{teile} = {zahl(s['faktor'], 2)}"
+
+
+# ---------------------------------------------------------------------
+# Bestätigungsregel (gegen hektische Phasenwechsel)
+# ---------------------------------------------------------------------
+
+def bestaetigte_phasen(roh: list[str], monate: int = 2) -> list[str]:
+    """Eine neue Phase gilt erst, wenn sie ``monate`` Monate in Folge angezeigt wird.
+
+    ``roh`` = berechnete Phasen in zeitlicher Reihenfolge. Liefert die gültigen Phasen.
+    """
+    gueltig: list[str] = []
+    for i, p in enumerate(roh):
+        if not gueltig:
+            gueltig.append(p)
+            continue
+        aktuell = gueltig[-1]
+        letzte = roh[max(0, i - monate + 1):i + 1]
+        gueltig.append(p if p != aktuell and len(letzte) == monate and all(x == p for x in letzte) else aktuell)
+    return gueltig
+
+
+def phase_setzen(eintrag: dict, phase: str, cfg: dict) -> dict:
+    """Sektor-Eintrag auf eine (bestätigte) Phase umstellen: Grundfaktor, Faktor und Text neu."""
+    e = dict(eintrag)
+    e["phase_roh"] = eintrag.get("phase_roh", eintrag["phase"])
+    e["phase"] = phase
+    e["grundfaktor"] = float(cfg["phasen"][phase]["faktor"])
+    roh = e["grundfaktor"] + e["bonus"]
+    e["faktor"] = min(max(roh, float(cfg.get("faktor_min", 0.7))), float(cfg.get("faktor_max", 1.3)))
+    e["text"] = faktor_text(e, cfg)
+    if e["phase_roh"] != phase:
+        e["text"] += (f" · angezeigt wird noch {cfg['phasen'][phase]['name']}, berechnet wäre "
+                      f"{cfg['phasen'][e['phase_roh']]['name']} (wartet auf Bestätigung)")
+    return e

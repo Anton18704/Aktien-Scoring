@@ -142,3 +142,64 @@ def test_veralteter_indikator_wird_ausgelassen():
     assert st.grund and "veraltet" in st.grund and st.z_niveau is None
     st = zyklus.indikator_auswerten("x", "Test", reihe, heute=pd.Timestamp("2024-03-15"))
     assert st.grund is None and st.z_niveau is not None
+
+
+# ------------------------------------------------------------ Verlauf / Rückrechnung
+
+def test_rueckrechnung_sieht_keine_zukunft():
+    """Ein Sprung nach dem Stichtag darf das Ergebnis zum Stichtag nicht verändern."""
+    cfg = {"indikatoren": {"x": {"name": "X", "umrechnung": "niveau"}}, "historie_jahre": 10, "richtung_monate": 6}
+    werte = [float(i % 7) for i in range(120)]
+    ruhig = monatsreihe(werte, ende="2026-09-30")
+    mit_sprung = ruhig.copy()
+    mit_sprung.loc["2026-05-31":] = 1000.0
+    stichtag = pd.Timestamp("2026-05-31")
+    a = zyklus.staende_zum_stichtag({"x": ruhig}, cfg, stichtag, verzoegerung_monate=1)["x"]
+    b = zyklus.staende_zum_stichtag({"x": mit_sprung}, cfg, stichtag, verzoegerung_monate=1)["x"]
+    assert a.datum == "2026-04-30"                     # ein Monat Veröffentlichungsverzug
+    assert a.z_niveau == pytest.approx(b.z_niveau)     # der Mai-Sprung ist zum Stichtag noch unbekannt
+
+
+def test_kgv_zum_stichtag():
+    from makro_sektoren import _kgv_zum
+    d = {"kgv": 40, "kgv_historie": {"2020": 20, "2021": 30, "2022": 25}}
+    assert _kgv_zum(d, None) == (40, [20, 30, 25])
+    assert _kgv_zum(d, pd.Timestamp("2021-06-30")) == (30, [20])
+    assert _kgv_zum(d, pd.Timestamp("2019-06-30")) == (None, [])
+
+
+def test_verlauf_live_hat_vorrang(tmp_path):
+    from speicher import db
+    con = db.verbinden(tmp_path / "v.db")
+    zeile = lambda monat, faktor, quelle: {"monat": monat, "sektor": "IT", "faktor": faktor, "grundfaktor": 1,  # noqa
+                                           "bonus": 0, "phase": "neutral", "niveau": 0, "richtung": 0, "quelle": quelle}
+    db.sektor_verlauf_ersetzen_rekonstruiert(con, [zeile("2026-09", 0.9, "rekonstruiert"),
+                                                   zeile("2026-10", 0.9, "rekonstruiert")])
+    db.sektor_verlauf_speichern(con, [zeile("2026-10", 1.1, "live")])
+    db.sektor_verlauf_ersetzen_rekonstruiert(con, [zeile("2026-09", 0.8, "rekonstruiert"),
+                                                   zeile("2026-10", 0.8, "rekonstruiert")])
+    v = {r["monat"]: r for r in db.sektor_verlauf(con)}
+    assert v["2026-09"]["faktor"] == 0.8                          # Rückrechnung ersetzt
+    assert v["2026-10"]["faktor"] == 1.1 and v["2026-10"]["quelle"] == "live"   # Live bleibt
+
+
+def test_bestaetigungsregel():
+    roh = ["abschwung", "erholung", "abschwung", "erholung", "erholung", "erholung", "boom"]
+    assert zyklus.bestaetigte_phasen(roh, 2) == ["abschwung", "abschwung", "abschwung", "abschwung",
+                                                 "erholung", "erholung", "erholung"]
+    assert zyklus.bestaetigte_phasen(roh, 1) == roh
+
+
+def test_phase_setzen_rechnet_faktor_neu():
+    e = {"phase": "erholung", "grundfaktor": 1.25, "bonus": 0.02, "faktor": 1.27}
+    neu = zyklus.phase_setzen(e, "abschwung", CFG)
+    assert neu["faktor"] == pytest.approx(1.07) and neu["phase_roh"] == "erholung"
+    assert "wartet auf Bestätigung" in neu["text"]
+
+
+def test_glaettung_daempft_einzelausreisser():
+    werte = [100.0] * 119 + [130.0]
+    roh = zyklus.indikator_auswerten("x", "X", monatsreihe(werte), glaettung=1)
+    glatt = zyklus.indikator_auswerten("x", "X", monatsreihe(werte), glaettung=3)
+    assert glatt.wert == pytest.approx(110.0)
+    assert roh.wert == pytest.approx(130.0)

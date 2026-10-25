@@ -6,7 +6,8 @@ import streamlit as st
 
 from kern.format import prozent, zahl
 from seiten import gemeinsam as g
-from makro_sektoren import aktualisieren, gespeichert, lade_makro_cfg
+from makro_sektoren import aktualisieren, gespeichert, lade_makro_cfg, rekonstruieren
+from speicher import db
 
 st.title("🧭 Sektoren & Zyklus")
 st.caption("Antizyklisch: Der Faktor ist am höchsten, wenn die Lage eines Sektors noch schlecht ist, sich aber "
@@ -35,16 +36,34 @@ for h in daten.get("hinweise", []):
 sektoren = daten["sektoren"]
 
 # ------------------------------------------------------------ Zyklusuhr
+GRENZE = 2.5
+
+
+def uhr(hoehe=520):
+    """Leere Zyklusuhr mit den vier farbigen Phasen."""
+    f = go.Figure()
+    for (x0, x1, y0, y1, phase) in ((0, GRENZE, -GRENZE, 0, "erholung"), (0, GRENZE, 0, GRENZE, "aufschwung"),
+                                    (-GRENZE, 0, 0, GRENZE, "boom"), (-GRENZE, 0, -GRENZE, 0, "abschwung")):
+        f.add_shape(type="rect", x0=x0, x1=x1, y0=y0, y1=y1, fillcolor=phasen[phase]["farbe"], opacity=0.12,
+                    line_width=0, layer="below")
+        f.add_annotation(x=(x0 + x1) / 2, y=y1 * 0.92 if y1 > 0 else y0 * 0.92,
+                         text=f"<b>{phasen[phase]['name']}</b> · Faktor {zahl(phasen[phase]['faktor'], 2)}",
+                         showarrow=False, font=dict(color=phasen[phase]["farbe"], size=12))
+    f.update_layout(height=hoehe, showlegend=False, margin=dict(l=10, r=10, t=10, b=10),
+                    xaxis=dict(range=[-GRENZE, GRENZE], title="Richtung: verschlechtert sich ← → verbessert sich",
+                               zeroline=True, zerolinewidth=2),
+                    yaxis=dict(range=[-GRENZE, GRENZE], title="Niveau: schlechter ↓ ↑ besser als üblich",
+                               zeroline=True, zerolinewidth=2))
+    return f
+
+
+def begrenzt(v):
+    return max(-GRENZE, min(GRENZE, v))
+
+
 st.subheader("Zyklusuhr")
-fig = go.Figure()
-grenze = 2.5
-for (x0, x1, y0, y1, phase) in ((0, grenze, -grenze, 0, "erholung"), (0, grenze, 0, grenze, "aufschwung"),
-                                (-grenze, 0, 0, grenze, "boom"), (-grenze, 0, -grenze, 0, "abschwung")):
-    fig.add_shape(type="rect", x0=x0, x1=x1, y0=y0, y1=y1, fillcolor=phasen[phase]["farbe"], opacity=0.12,
-                  line_width=0, layer="below")
-    fig.add_annotation(x=(x0 + x1) / 2, y=y1 * 0.92 if y1 > 0 else y0 * 0.92,
-                       text=f"<b>{phasen[phase]['name']}</b> · Faktor {zahl(phasen[phase]['faktor'], 2)}",
-                       showarrow=False, font=dict(color=phasen[phase]["farbe"], size=12))
+grenze = GRENZE
+fig = uhr()
 mit_daten = {n: s for n, s in sektoren.items() if s["niveau"] is not None and s["richtung"] is not None}
 if mit_daten:
     fig.add_trace(go.Scatter(
@@ -55,11 +74,6 @@ if mit_daten:
         marker=dict(size=14, color=[phasen[s["phase"]]["farbe"] for s in mit_daten.values()],
                     line=dict(width=1, color="#333")),
         hovertemplate="%{text}<br>Richtung %{x:.2f}, Niveau %{y:.2f}<extra></extra>"))
-fig.update_layout(height=520, showlegend=False, margin=dict(l=10, r=10, t=10, b=10),
-                  xaxis=dict(range=[-grenze, grenze], title="Richtung: verschlechtert sich ← → verbessert sich",
-                             zeroline=True, zerolinewidth=2),
-                  yaxis=dict(range=[-grenze, grenze], title="Niveau: schlechter ↓ ↑ besser als üblich",
-                             zeroline=True, zerolinewidth=2))
 st.plotly_chart(fig, width="stretch")
 if len(mit_daten) < len(sektoren):
     st.caption(f"{len(sektoren) - len(mit_daten)} Sektoren ohne Makrodaten (Phase neutral, nicht in der Uhr): "
@@ -80,6 +94,66 @@ st.dataframe(uebersicht, hide_index=True, width="stretch",
              column_config={"Faktor": st.column_config.ProgressColumn(
                  "Faktor", min_value=cfg["faktor_min"], max_value=cfg["faktor_max"], format="%.2f")})
 
+
+# ------------------------------------------------------------ Verlauf
+st.subheader("Verlauf")
+verlauf = pd.DataFrame(db.sektor_verlauf(con))
+rekonstruiert = not verlauf.empty and (verlauf["quelle"] == "rekonstruiert").any()
+v1, v2 = st.columns([3, 1])
+v1.caption("Jede Aktualisierung wird gespeichert (live). Zusätzlich lässt sich der Verlauf der letzten 3 Jahre aus "
+           "den historischen Daten nachrechnen – dabei werden je Monat nur Daten verwendet, die damals schon "
+           "veröffentlicht waren (ein Monat Verzug). Hinweis: FRED liefert teils nachträglich korrigierte Werte.")
+if v2.button("🕰️ Letzte 3 Jahre nachrechnen" if not rekonstruiert else "🕰️ Nachrechnung erneuern", width="stretch"):
+    with st.spinner("Rechne 36 Monate nach … (Daten sind meist schon zwischengespeichert)"):
+        anzahl = rekonstruieren(con)
+    st.toast(f"{anzahl} Monate nachgerechnet.")
+    st.rerun()
+
+if verlauf.empty or verlauf["monat"].nunique() < 2:
+    st.info("Für einen Verlauf braucht es mindestens zwei Monate. Tippe auf „Letzte 3 Jahre nachrechnen“ "
+            "oder aktualisiere die Makrodaten in den kommenden Wochen erneut.")
+else:
+    verlauf["Monat"] = pd.to_datetime(verlauf["monat"] + "-01")
+    alle = sorted(verlauf["sektor"].unique())
+    eigene = sorted({db.sektor(t) for t in db.titel_alle(con)} & set(alle))
+    auswahl_v = st.multiselect("Sektoren im Diagramm", alle, default=eigene or alle[:3], key="verlauf_sektoren",
+                               help="Vorausgewählt sind die Sektoren deiner Titel aus der Hauptliste.")
+    fig = go.Figure()
+    for n in auswahl_v:
+        d = verlauf[verlauf["sektor"] == n].sort_values("Monat")
+        fig.add_trace(go.Scatter(
+            x=d["Monat"], y=d["faktor"], mode="lines+markers", name=n, line_shape="hv",
+            text=[f"{phasen[p]['name']} ({q})" for p, q in zip(d["phase"], d["quelle"])],
+            hovertemplate=f"{n} %{{x|%m/%Y}}: Faktor %{{y:.2f}}<br>%{{text}}<extra></extra>"))
+    fig.add_hline(y=1.0, line_dash="dot", line_color="#555")
+    fig.update_layout(height=380, margin=dict(l=10, r=10, t=10, b=10), yaxis=dict(title="Sektorfaktor"),
+                      legend=dict(orientation="h", y=-0.15))
+    st.plotly_chart(fig, width="stretch")
+
+    st.markdown("**Weg eines Sektors durch die Zyklusuhr**")
+    p1, p2 = st.columns([2, 1])
+    sektor_pfad = p1.selectbox("Sektor", alle, key="pfad_sektor")
+    monate_pfad = p2.select_slider("Zeitraum", options=[6, 12, 24, 36], value=12, format_func=lambda m: f"{m} Monate")
+    d = verlauf[(verlauf["sektor"] == sektor_pfad)].dropna(subset=["niveau", "richtung"]).sort_values("Monat")
+    d = d.tail(monate_pfad)
+    if len(d) >= 2:
+        fig = uhr(hoehe=480)
+        fig.add_trace(go.Scatter(
+            x=[begrenzt(v) for v in d["richtung"]], y=[begrenzt(v) for v in d["niveau"]],
+            mode="lines+markers", line=dict(color="#2c3e50", width=2),
+            marker=dict(size=[6] * (len(d) - 1) + [16], color=[phasen[p]["farbe"] for p in d["phase"]],
+                        line=dict(width=1, color="#333")),
+            text=[f"{m:%m/%Y}: {phasen[p]['name']}, Faktor {zahl(f, 2)}" for m, p, f in zip(d["Monat"], d["phase"], d["faktor"])],
+            hovertemplate="%{text}<extra></extra>"))
+        for i in (0, len(d) - 1):
+            fig.add_annotation(x=begrenzt(d["richtung"].iloc[i]), y=begrenzt(d["niveau"].iloc[i]),
+                               text=("Start " if i == 0 else "jetzt ") + f"{d['Monat'].iloc[i]:%m/%Y}",
+                               showarrow=True, arrowhead=0, ax=30, ay=-25)
+        st.plotly_chart(fig, width="stretch")
+        st.caption("Ein typischer Zyklus läuft gegen den Uhrzeigersinn: Erholung → Aufschwung → Boom/Wende → "
+                   "Abschwung → Erholung. Der große Punkt ist der aktuelle Stand.")
+    else:
+        st.caption("Für diesen Sektor gibt es noch zu wenige Monate mit Daten.")
 
 # ------------------------------------------------------------ Karten je Sektor
 def ampel(z):

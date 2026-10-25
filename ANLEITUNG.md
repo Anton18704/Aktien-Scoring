@@ -157,6 +157,11 @@ Die Sektor-Zuordnung steht in `config/sic_sektoren.yaml`.
   Dazu ±0,10 für die Bewertung des Sektors (Damodaran-KGV vs. eigene Historie, ETF-Kurs vs. 10-Jahres-Trend).
   Begrenzt auf 0,7–1,3. **Gesamtscore = Score ohne Makro × Sektorfaktor** (höchstens 100); der Score
   ohne Makro steht immer daneben. Indikatoren, die älter als 6 Monate sind, werden nicht verwendet.
+  Gegen hektische Wechsel: Niveau und Richtung aus dem gleitenden 3-Monats-Durchschnitt, und eine neue
+  Phase gilt erst, wenn sie 2 Monate in Folge angezeigt wird (beides einstellbar).
+  **Verlauf:** jede Aktualisierung wird gespeichert; die letzten 3 Jahre lassen sich nachrechnen
+  (je Monat nur damals veröffentlichte Daten, ein Monat Verzug). Anzeige als Liniendiagramm und als
+  Weg eines Sektors durch die Zyklusuhr.
   Alle Regeln, Gewichte und Phasen-Faktoren: `config/makro.yaml`. Ausschalten: `aktiv: false`.
 - **Branchenwerte im DCF:** Zuschlag = (Sektor-Beta – 1) × Marktrisikoprämie, Exit-Multiple = Median des
   Sektor-KGV der letzten ~10 Jahre (beides Damodaran, begrenzt). Umschaltbar in `config/dcf.yaml`.
