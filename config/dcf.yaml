@@ -1,0 +1,100 @@
+# =====================================================================
+#  DCF-Modell (Discounted Cashflow) – Einstellungen
+# =====================================================================
+#
+#  Diese Datei darfst du jederzeit ändern. Die fairen Werte werden beim
+#  nächsten Neuladen der Seite neu berechnet (keine neue Analyse nötig).
+#  Prozentwerte als Zahl eintragen: 4.5 bedeutet 4,5 %.
+#
+#  So rechnet das Modell (je Szenario):
+#   1. Start-Free-Cashflow (nach Aktienvergütung)
+#   2. Jahre 1–5: wächst mit dem Szenario-Wachstum
+#   3. Jahre 6–10: Wachstum sinkt gleichmäßig auf das langfristige Wachstum
+#   4. Endwert nach Jahr 10: Durchschnitt aus
+#        - ewigem Wachstum (Gordon-Modell) und
+#        - Branchen-Multiple (Kurs / Free Cashflow)
+#   5. Alles mit dem Abzinsungssatz auf heute abzinsen
+#      Abzinsungssatz = risikofreier Zins + Marktrisikoprämie + Branchenzuschlag
+#   6. + Nettocash (falls vorhanden), ÷ Aktienanzahl = fairer Wert je Aktie
+#
+#  Gerechnet wird mit dem Free Cashflow, der den Aktionären zufließt (nach
+#  Zinszahlungen). Schulden stecken deshalb schon in den gezahlten Zinsen
+#  und werden nicht noch einmal abgezogen; vorhandenes Nettocash wird addiert.
+# =====================================================================
+
+# Risikofreier Zins: Rendite der 10-jährigen US-Staatsanleihe
+risikofreier_zins:
+  quelle: fred          # "fred" = live von der US-Notenbank St. Louis, "fest" = immer den Ersatzwert nehmen
+  fred_reihe: DGS10
+  ersatzwert: 4.25      # wird genutzt, wenn FRED nicht erreichbar ist (die App zeigt das an)
+
+marktrisikopraemie: 4.5   # zusätzliche Rendite, die man für Aktien statt Anleihen verlangt
+
+prognosejahre: 10
+wachstumsphase: 5         # so viele Jahre gilt das volle Szenario-Wachstum, danach sinkt es
+
+endwert_methode: durchschnitt   # "gordon", "multiple" oder "durchschnitt"
+
+# Mindestabstand zwischen Abzinsung und ewigem Wachstum (Prozentpunkte).
+# Ist er kleiner, wird das Gordon-Modell instabil und nur das Multiple verwendet.
+mindestabstand_gordon: 2.0
+
+# ---------------------------------------------------------------------
+#  Szenarien
+# ---------------------------------------------------------------------
+#  wachstum_delta:     Abstand zum erwarteten Wachstum der Firma (Prozentpunkte)
+#  langfr_wachstum:    ewiges Wachstum nach Jahr 10 (%)
+#  abzinsung_delta:    Auf- oder Abschlag auf den Abzinsungssatz (Prozentpunkte)
+#  multiple_faktor:    Faktor auf das Branchen-Multiple (0.75 = 25 % niedriger)
+#  start_fcf:          "minimum" = niedrigster Wert aus 12 Monaten und den letzten 3 Geschäftsjahren
+#                      "durchschnitt" = Durchschnitt aus 12 Monaten und den letzten 3 Geschäftsjahren
+#                      "ttm" = letzte 12 Monate
+#  gewicht:            Anteil am gewichteten fairen Wert (wird auf 100 % normiert)
+szenarien:
+  bear:
+    name: Bear
+    gewicht: 25
+    wachstum_delta: -3.0
+    langfr_wachstum: 1.5
+    abzinsung_delta: 1.0
+    multiple_faktor: 0.75
+    start_fcf: minimum
+  base:
+    name: Base
+    gewicht: 50
+    wachstum_delta: 0.0
+    langfr_wachstum: 2.5
+    abzinsung_delta: 0.0
+    multiple_faktor: 1.0
+    start_fcf: durchschnitt
+  bull:
+    name: Bull
+    gewicht: 25
+    wachstum_delta: 2.0
+    langfr_wachstum: 3.0
+    abzinsung_delta: -0.5
+    multiple_faktor: 1.2
+    start_fcf: ttm
+
+# ---------------------------------------------------------------------
+#  Branchen-Multiplikatoren
+# ---------------------------------------------------------------------
+#  zuschlag:       Auf-/Abschlag auf den Abzinsungssatz (Prozentpunkte).
+#                  Höher = riskanter/zyklischer, niedriger = stabiler.
+#  exit_multiple:  Kurs / Free Cashflow, mit dem die Firma nach Jahr 10 bewertet wird.
+#
+#  Das sind Startwerte (grobe langfristige Durchschnitte). Später sollen
+#  diese Werte aus Branchendaten und Makro-Kennzahlen kommen.
+branchen:
+  IT:                 {zuschlag: 0.5,  exit_multiple: 22}
+  Kommunikation:      {zuschlag: 0.5,  exit_multiple: 18}
+  Zyklischer Konsum:  {zuschlag: 0.5,  exit_multiple: 18}
+  Basiskonsum:        {zuschlag: -0.5, exit_multiple: 20}
+  Gesundheit:         {zuschlag: 0.0,  exit_multiple: 20}
+  Finanzwerte:        {zuschlag: 0.5,  exit_multiple: 12}
+  Industrie:          {zuschlag: 0.5,  exit_multiple: 17}
+  Grundstoffe:        {zuschlag: 1.0,  exit_multiple: 14}
+  Energie:            {zuschlag: 1.5,  exit_multiple: 10}
+  Versorger:          {zuschlag: -1.0, exit_multiple: 16}
+  Immobilien:         {zuschlag: 0.0,  exit_multiple: 18}
+  unbekannt:          {zuschlag: 0.5,  exit_multiple: 15}

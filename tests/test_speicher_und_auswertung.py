@@ -14,7 +14,8 @@ def con(tmp_path):
 
 def _speichern(con, rohwert_fcf=7.0):
     s = lade_schwellen()
-    ergebnisse = [Ergebnis(k, rohwert=kz["zehn"]) for k, kz in s["kennzahlen"].items()]
+    # Die DCF-Sicherheitsmarge wird nicht gespeichert, sondern live berechnet
+    ergebnisse = [Ergebnis(k, rohwert=kz["zehn"]) for k, kz in s["kennzahlen"].items() if k != "dcf_sicherheitsmarge"]
     ergebnisse[0].rohwert = rohwert_fcf
     return db.analyse_speichern(con, "TEST", "USD", ergebnisse,
                                 lambda k: s["kennzahlen"][k]["kategorie"], lambda e: None, [])
@@ -38,7 +39,7 @@ def test_erneute_analyse_legt_neuen_eintrag_an(con):
     v = auswertung.verlauf(con, "TEST")
     assert len(v) == 2
     assert v["A"].iloc[0] == pytest.approx(10)
-    assert v["A"].iloc[1] == pytest.approx(50 / 6)     # A hat 6 Kennzahlen: FCF-Rendite 0 Punkte, Rest 10
+    assert v["A"].iloc[1] == pytest.approx(40 / 5)     # A ohne DCF: FCF-Rendite 0 Punkte, 4 weitere je 10
 
 
 def test_einschaetzung_offen_und_danach(con):
@@ -69,7 +70,7 @@ def test_gewichte_wirken_sofort(con):
     vorher = auswertung.uebersicht(con).loc[0, "Gesamtscore"]
     db.einstellung_setzen(con, "gewichte", {"A": 100, "B": 0, "C": 0, "D": 0, "E": 0})
     nachher = auswertung.uebersicht(con).loc[0, "Gesamtscore"]
-    assert nachher == pytest.approx(500 / 6, abs=0.05) and nachher != vorher
+    assert nachher == pytest.approx(80) and nachher != vorher
 
 
 def test_manueller_sektor_hat_vorrang(con):
@@ -101,3 +102,34 @@ def test_alte_datenbank_wird_ergaenzt(tmp_path):
     con = db.verbinden(pfad)
     e = db.einschaetzungen_fuer(con, "KO")[0]
     assert e["begruendung"] == "alt" and e["gegenthese"] is None
+
+
+def test_dcf_wird_live_berechnet_und_manuell_ueberschreibbar(con):
+    import json
+    from kern.dcf import DcfEingaben
+    db.titel_speichern(con, "TEST", 1, "Test Inc", "2080", "", "Basiskonsum", "USD")
+    s = lade_schwellen()
+    eingaben = DcfEingaben(fcf_ttm=100, fcf_jahre=[100, 100, 100], wachstum=5, aktien=100, kurs=10,
+                           nettocash=0, zins=4.0)
+    db.analyse_speichern(con, "TEST", "USD", [], lambda k: s["kennzahlen"][k]["kategorie"], lambda e: None, [],
+                         dcf=eingaben.als_dict())
+    analyse = db.analysen_fuer(con, "TEST")[-1]
+    titel = db.titel(con, "TEST")
+    from kern.konfig import lade_dcf
+    erg, _ = auswertung.dcf_berechnen(analyse, titel, db.dcf_manuell(con, "TEST"), s, lade_dcf())
+    assert erg.grund is None and erg.fairer_wert > 10        # FCF-Rendite 10 % → deutlich unterbewertet
+    vorher = erg.fairer_wert
+    db.dcf_manuell_speichern(con, "TEST", -5, 0, 2, "Sondereffekte")
+    erg, _ = auswertung.dcf_berechnen(analyse, titel, db.dcf_manuell(con, "TEST"), s, lade_dcf())
+    assert erg.manuell and erg.fairer_wert < vorher
+    db.dcf_manuell_speichern(con, "TEST", None, None, None)  # zurück auf automatisch
+    assert db.dcf_manuell(con, "TEST") is None
+    auto, eing = auswertung.dcf_berechnen(analyse, titel, None, s, lade_dcf())
+    zeile = auswertung.dcf_zeile(analyse, auto, eing)
+    assert zeile["rohwert"] == pytest.approx(auto.sicherheitsmarge) and zeile["rohwert"] > 0
+    assert zeile["kategorie"] == "A" and zeile["grund"] is None
+    assert zeile["rohwert"] == pytest.approx(vorher_marge(vorher))
+
+
+def vorher_marge(fairer_wert, kurs=10):
+    return (fairer_wert - kurs) / fairer_wert * 100

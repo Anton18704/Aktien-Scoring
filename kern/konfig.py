@@ -11,6 +11,7 @@ CONFIG = PROJEKT / "config"
 SCHWELLEN_DATEI = CONFIG / "schwellen.yaml"
 SEKTOREN_DATEI = CONFIG / "sic_sektoren.yaml"
 SETTINGS_DATEI = CONFIG / "settings.toml"
+DCF_DATEI = CONFIG / "dcf.yaml"
 
 KATEGORIEN = ["A", "B", "C", "D", "E"]
 
@@ -98,3 +99,15 @@ def schreibe_settings(email: str, tiingo_key: str = "", pfad: Path = SETTINGS_DA
         f'tiingo_api_key = "{tiingo_key}"\n'
     )
     pfad.write_text(inhalt, encoding="utf-8")
+
+
+def lade_dcf(pfad: Path = DCF_DATEI) -> dict:
+    """Liest dcf.yaml (Szenarien, Branchen-Multiplikatoren, Zinsquelle)."""
+    with open(pfad, encoding="utf-8") as f:
+        daten = yaml.safe_load(f)
+    for name in ("bear", "base", "bull"):
+        if name not in daten.get("szenarien", {}):
+            raise KonfigFehler(f"dcf.yaml: Szenario '{name}' fehlt.")
+    if "unbekannt" not in daten.get("branchen", {}):
+        raise KonfigFehler("dcf.yaml: Branche 'unbekannt' fehlt (wird für Titel ohne Sektor gebraucht).")
+    return daten

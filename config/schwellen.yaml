@@ -33,8 +33,9 @@ optionen:
   # erscheint beim Titel eine rote Warnung. Der Score selbst ändert sich nicht.
   ko_schwelle: 3.0
 
-  # Erwartete Rendite = FCF-Rendite + Wachstum. Das Wachstum wird auf diesen
-  # Bereich begrenzt (in %), damit Ausreißer nicht unrealistische Renditen ergeben.
+  # Erwartetes Wachstum (für das DCF-Modell): der niedrigere Wert aus Umsatz- und
+  # FCF-je-Aktie-Wachstum, begrenzt auf diesen Bereich (in %), damit Ausreißer nicht
+  # unrealistische Werte ergeben. Eine Änderung wirkt erst nach "Neu analysieren".
   wachstum_min: -5.0
   wachstum_max: 12.0
 
@@ -108,14 +109,14 @@ kennzahlen:
     bei_5: 40.0
     bei_0: 50.0
 
-  erwartete_rendite:
+  dcf_sicherheitsmarge:
     kategorie: A
-    name: Erwartete Rendite
-    einheit: "% p. a."
-    erklaerung: FCF-Rendite + Wachstum je Aktie (der niedrigere Wert aus Umsatz- und FCF-je-Aktie-Wachstum); grobe jährliche Rendite bei gleichbleibender Bewertung
-    bei_10: 10.0
-    bei_5: 8.0
-    bei_0: 6.0
+    name: DCF-Sicherheitsmarge
+    einheit: "%"
+    erklaerung: (gewichteter fairer Wert aus Bear/Base/Bull – Kurs) ÷ fairer Wert; Einstellungen in config/dcf.yaml
+    bei_10: 30.0
+    bei_5: 10.0
+    bei_0: -10.0
 
   # ---------- B. Langfristiges Wachstum ----------
   umsatz_cagr:

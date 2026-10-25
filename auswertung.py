@@ -6,12 +6,14 @@ Gewichten oder Schwellenwerten sofort auf alle Titel.
 """
 from __future__ import annotations
 
+import json
 from collections import defaultdict
 
 import pandas as pd
 
+from kern import dcf as dcf_modell
 from kern.gesamtscore import Gesamt, einschaetzung_score, gesamtscore, kategorie_score
-from kern.konfig import KATEGORIEN, lade_schwellen, standardgewichte
+from kern.konfig import KATEGORIEN, lade_dcf, lade_schwellen, standardgewichte
 from kern.punkte import punkte_fuer
 from speicher import db
 
@@ -20,6 +22,45 @@ def gewichte_und_aktiv(con, schwellen: dict) -> tuple[dict[str, float], dict[str
     gewichte = db.einstellung(con, "gewichte", standardgewichte(schwellen))
     aktiv = db.einstellung(con, "aktiv", {k: True for k in KATEGORIEN})
     return gewichte, aktiv
+
+
+def dcf_berechnen(analyse: dict, titel: dict, manuell: dict | None, schwellen: dict, dcf_cfg: dict):
+    """DCF-Bewertung einer gespeicherten Analyse mit den aktuellen Einstellungen.
+
+    Liefert (Ergebnis, Eingaben) oder (None, None), wenn die Analyse noch keine DCF-Daten hat.
+    """
+    roh = analyse.get("dcf")
+    if not roh:
+        return None, None
+    eingaben = dcf_modell.DcfEingaben.aus_dict(json.loads(roh))
+    opt = schwellen["optionen"]
+    erg = dcf_modell.bewerten(eingaben, db.sektor(titel), dcf_cfg, float(opt["wachstum_min"]),
+                              float(opt["wachstum_max"]), manuell)
+    return erg, eingaben
+
+
+def dcf_zeile(analyse: dict, erg, eingaben) -> dict:
+    """Die DCF-Sicherheitsmarge im Format einer gespeicherten Kennzahl (für Scores und Tabellen)."""
+    zeile = {"analyse_id": analyse["id"], "schluessel": "dcf_sicherheitsmarge", "kategorie": "A",
+             "rohwert": None, "fixpunkte": None, "punkte_damals": None, "quelle": "", "datenstand": "",
+             "grund": None, "details": "", "hinweis": ""}
+    if erg is None:
+        zeile["grund"] = "Analyse stammt aus der Zeit vor dem DCF-Modell – bitte neu analysieren"
+        return zeile
+    zeile["grund"] = erg.grund
+    if erg.grund is None:
+        zeile["rohwert"] = erg.sicherheitsmarge
+        zeile["details"] = dcf_modell.kurzbeschreibung(erg, eingaben)
+        zeile["hinweis"] = "Wachstum teilweise manuell gesetzt" if erg.manuell else ""
+    zeile["quelle"] = "; ".join(x for x in (eingaben.quelle, f"Zins: {eingaben.zins_quelle} {eingaben.zins_datum}".strip(),
+                                            "Annahmen: config/dcf.yaml") if x)
+    zeile["datenstand"] = eingaben.datenstand
+    return zeile
+
+
+def mit_dcf(zeilen: list[dict], analyse: dict, titel: dict, manuell, schwellen: dict, dcf_cfg: dict) -> list[dict]:
+    erg, eingaben = dcf_berechnen(analyse, titel, manuell, schwellen, dcf_cfg)
+    return [z for z in zeilen if z["schluessel"] != "dcf_sicherheitsmarge"] + [dcf_zeile(analyse, erg, eingaben)]
 
 
 def punkte_zeile(zeile: dict, schwellen: dict) -> float | None:
@@ -80,7 +121,8 @@ def uebersicht(con) -> pd.DataFrame:
     einsch = defaultdict(list)
     for e in db.einschaetzungen_alle(con):
         einsch[e["ticker"]].append(e)
-    zeitpunkte = {a: z for a, z in con.execute("SELECT id, zeitpunkt FROM analysen")}
+    analysen = {r["id"]: dict(r) for r in con.execute("SELECT id, zeitpunkt, dcf FROM analysen")}
+    manuell, dcf_cfg = db.dcf_manuell_alle(con), lade_dcf()
 
     zeilen = []
     for t in db.titel_alle(con):
@@ -88,13 +130,14 @@ def uebersicht(con) -> pd.DataFrame:
         if aid is None:
             continue
         e = einsch[t["ticker"]][-1] if einsch[t["ticker"]] else None
-        scores, g = bewertung(alle_zeilen[aid], e, schwellen, gewichte, aktiv)
+        kz = mit_dcf(alle_zeilen[aid], analysen[aid], t, manuell.get(t["ticker"]), schwellen, dcf_cfg)
+        scores, g = bewertung(kz, e, schwellen, gewichte, aktiv)
         zeilen.append({
             "Name": t["name"], "Ticker": t["ticker"], "Sektor": db.sektor(t),
             "Gesamtscore": None if g.score is None else round(g.score, 1),
             **{schwellen["kategorien"][k]["kurz"]: None if scores[k] is None else round(scores[k], 1) for k in KATEGORIEN},
             "Hinweis": markierung(g, schwellen),
-            "Letzte Analyse": zeitpunkte[aid][:16].replace("T", " "),
+            "Letzte Analyse": analysen[aid]["zeitpunkt"][:16].replace("T", " "),
         })
     return pd.DataFrame(zeilen)
 
@@ -128,9 +171,11 @@ def verlauf(con, ticker: str) -> pd.DataFrame:
     zeilen = defaultdict(list)
     for z in db.kennzahlen_fuer(con, [a["id"] for a in analysen]):
         zeilen[z["analyse_id"]].append(z)
+    titel, manuell, dcf_cfg = db.titel(con, ticker), db.dcf_manuell(con, ticker), lade_dcf()
     daten = []
     for a, e in zip(analysen, einsch):
-        scores, g = bewertung(zeilen[a["id"]], e, schwellen, gewichte, aktiv)
+        kz = mit_dcf(zeilen[a["id"]], a, titel, manuell, schwellen, dcf_cfg)
+        scores, g = bewertung(kz, e, schwellen, gewichte, aktiv)
         daten.append({"Zeitpunkt": pd.Timestamp(a["zeitpunkt"]), "Gesamtscore": g.score,
                       "Hinweis": markierung(g, schwellen), **{k: scores[k] for k in KATEGORIEN}})
     return pd.DataFrame(daten)
@@ -148,6 +193,8 @@ def kategorie_ansicht(con, kategorie: str) -> pd.DataFrame:
     for e in db.einschaetzungen_alle(con):
         einsch[e["ticker"]].append(e)
     namen = {s: k["name"] for s, k in schwellen["kennzahlen"].items() if k["kategorie"] == kategorie}
+    analysen = {r["id"]: dict(r) for r in con.execute("SELECT id, zeitpunkt, dcf FROM analysen")}
+    manuell, dcf_cfg = db.dcf_manuell_alle(con), lade_dcf()
     einheiten = {s: k["einheit"] for s, k in schwellen["kennzahlen"].items()}
 
     daten = []
@@ -156,7 +203,8 @@ def kategorie_ansicht(con, kategorie: str) -> pd.DataFrame:
         if aid is None:
             continue
         e = einsch[t["ticker"]][-1] if einsch[t["ticker"]] else None
-        scores, g = bewertung(alle_zeilen[aid], e, schwellen, gewichte, aktiv)
+        kz = mit_dcf(alle_zeilen[aid], analysen[aid], t, manuell.get(t["ticker"]), schwellen, dcf_cfg)
+        scores, g = bewertung(kz, e, schwellen, gewichte, aktiv)
         zeile = {"Name": t["name"], "Ticker": t["ticker"], "Sektor": db.sektor(t),
                  "Kategorie-Score": None if scores[kategorie] is None else round(scores[kategorie], 1)}
         if kategorie == "E":
@@ -165,7 +213,7 @@ def kategorie_ansicht(con, kategorie: str) -> pd.DataFrame:
                           "Begründung": e and e["begruendung"],
                           "Ich liege falsch, wenn …": e and e.get("gegenthese")})
         else:
-            roh = {z["schluessel"]: z["rohwert"] for z in alle_zeilen[aid]}
+            roh = {z["schluessel"]: z["rohwert"] for z in kz}
             for s, n in namen.items():
                 einheit = f" [{einheiten[s]}]" if einheiten[s] else ""
                 zeile[n + einheit] = None if roh.get(s) is None else round(roh[s], 2)

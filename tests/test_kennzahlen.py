@@ -266,8 +266,8 @@ def test_altman_ohne_gewinnruecklagen(fd_basis):
 
 def test_alle_berechnen_passt_zur_konfiguration(fd_basis):
     ergebnisse = k.alle_berechnen(fd_basis)
-    assert len(ergebnisse) == 17
-    assert {e.schluessel for e in ergebnisse} == set(__import__("kern.konfig", fromlist=["x"]).lade_schwellen()["kennzahlen"])
+    alle = set(__import__("kern.konfig", fromlist=["x"]).lade_schwellen()["kennzahlen"])
+    assert {e.schluessel for e in ergebnisse} == alle - {"dcf_sicherheitsmarge"}   # DCF wird live berechnet
 
 
 # ------------------------------------------------------------ Korrekturen nach dem Echtdaten-Test
@@ -362,26 +362,31 @@ def test_fcf_rendite_historie(fd_basis):
     assert e.rohwert == pytest.approx((aktuell / 10 - 1) * 100)
 
 
-def test_erwartete_rendite_nimmt_niedrigeres_wachstum():
-    fd = k.Finanzdaten(kurs_waehrung="USD")
-    fd.ttm = {"ocf": w(60, "2025-12-31"), "capex": w(0, "2025-12-31")}
-    fd.aktien_aktuell, fd.kurs_aktuell = w(100, "2025-12-31"), w(10, "2025-12-31")   # FCF-Rendite 6 %
+def test_erwartetes_wachstum_nimmt_niedrigeres():
+    fd = k.Finanzdaten()
     fd.jahre["umsatz"] = jahresreihe([100 * 1.10 ** i for i in range(11)])           # 10 %
     fd.jahre["ocf"] = jahresreihe([50 * 1.04 ** i for i in range(11)])               # 4 %
     fd.jahre["capex"] = jahresreihe([0] * 11)
     fd.jahre["aktien_verwaessert"] = jahresreihe([100] * 11)
-    e = k.erwartete_rendite(fd)
-    assert e.rohwert == pytest.approx(6 + 4)
+    g, _, grund = k.erwartetes_wachstum(fd)
+    assert grund is None and g == pytest.approx(4)
 
 
-def test_erwartete_rendite_wachstum_begrenzt():
-    fd = k.Finanzdaten(kurs_waehrung="USD")
-    fd.ttm = {"ocf": w(50, "2025-12-31"), "capex": w(0, "2025-12-31")}
-    fd.aktien_aktuell, fd.kurs_aktuell = w(100, "2025-12-31"), w(10, "2025-12-31")   # 5 %
+def test_erwartetes_wachstum_begrenzt():
+    fd = k.Finanzdaten()
     fd.jahre["umsatz"] = jahresreihe([100 * 1.30 ** i for i in range(11)])           # 30 %
-    e = k.erwartete_rendite(fd)
-    assert e.rohwert == pytest.approx(5 + 12)
-    assert "begrenzt" in e.details
+    g, text, _ = k.erwartetes_wachstum(fd)
+    assert g == pytest.approx(12) and "begrenzt" in text
+
+
+def test_dcf_eingaben(fd_basis):
+    fd_basis.jahre["umsatz"] = jahresreihe([100 * 1.05 ** i for i in range(11)])
+    e = k.dcf_eingaben(fd_basis)
+    assert e.grund is None
+    assert e.fcf_ttm == pytest.approx(150)
+    assert e.wachstum == pytest.approx(5)
+    assert e.nettocash == pytest.approx(150 - 475)
+    assert e.aktien == 100 and e.kurs == 20
 
 
 def test_aktien_verwaesserung():

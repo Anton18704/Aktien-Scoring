@@ -6,8 +6,9 @@ from dataclasses import dataclass
 from daten.kurse import KursFehler, lade_kurse
 from daten.sec import SecClient, SecFehler
 from daten.xbrl import finanzdaten_aus
-from kern.kennzahlen import alle_berechnen
-from kern.konfig import lade_schwellen, lade_settings, sektor_fuer_sic
+from daten.makro import risikofreier_zins
+from kern.kennzahlen import alle_berechnen, dcf_eingaben
+from kern.konfig import lade_dcf, lade_schwellen, lade_settings, sektor_fuer_sic
 from kern.punkte import punkte_fuer
 from speicher import db
 
@@ -41,6 +42,7 @@ class Rohdaten:
     fd: object
     ergebnisse: list
     hinweise: list[str]
+    dcf: object = None          # kern.dcf.DcfEingaben
 
 
 def kennzahlen_berechnen(ticker: str, frisch: bool = False) -> Rohdaten:
@@ -76,8 +78,12 @@ def kennzahlen_berechnen(ticker: str, frisch: bool = False) -> Rohdaten:
         raise AnalyseFehler(f"Für {ticker} gibt es bei der SEC keine verwertbaren XBRL-Abschlussdaten "
                             "(z. B. weil das Unternehmen nicht bei der SEC berichtet).")
     name = sub.get("name") or facts.get("entityName") or ticker
+    dcf = dcf_eingaben(fd)
+    dcf.zins, dcf.zins_datum, dcf.zins_quelle, zins_hinweis = risikofreier_zins(lade_dcf())
+    if zins_hinweis:
+        hinweise.append(zins_hinweis)
     return Rohdaten(ticker, cik, name, str(sub.get("sic") or ""), sub.get("sicDescription", ""),
-                    fd, alle_berechnen(fd), hinweise)
+                    fd, alle_berechnen(fd), hinweise, dcf)
 
 
 def analysieren(con, ticker: str, frisch: bool = False) -> AnalyseErgebnis:
@@ -90,6 +96,7 @@ def analysieren(con, ticker: str, frisch: bool = False) -> AnalyseErgebnis:
         kategorie_von=lambda s: schwellen["kennzahlen"][s]["kategorie"],
         punkte_von=lambda e: punkte_fuer(e.schluessel, e.rohwert, e.fixpunkte, schwellen),
         hinweise=r.hinweise,
+        dcf=r.dcf.als_dict() if r.dcf else None,
     )
     return AnalyseErgebnis(r.ticker, r.name, analyse_id, r.hinweise)
 

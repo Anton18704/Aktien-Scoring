@@ -1,11 +1,13 @@
 import json
 
+import pandas as pd
 import plotly.graph_objects as go
 import streamlit as st
 
 import auswertung
-from kern.format import zahl
-from kern.konfig import KATEGORIEN
+from kern import dcf as dcf_modell
+from kern.format import betrag, prozent, zahl
+from kern.konfig import KATEGORIEN, KonfigFehler, lade_dcf
 from seiten import gemeinsam as g
 from speicher import db
 
@@ -100,7 +102,14 @@ analyse_id = st.selectbox("Analyse vom", [a["id"] for a in reversed(analysen)], 
 analyse = next(a for a in analysen if a["id"] == analyse_id)
 gueltige_e = dict(zip([a["id"] for a in analysen], auswertung.einschaetzung_fuer_analysen(analysen, einschaetzungen)))
 e = gueltige_e[analyse_id]
-zeilen = db.kennzahlen_fuer(con, [analyse_id])
+try:
+    dcf_cfg = lade_dcf()
+except KonfigFehler as ex:
+    st.error(f"Fehler in config/dcf.yaml: {ex}")
+    st.stop()
+manuell = db.dcf_manuell(con, ticker)
+dcf_erg, dcf_ein = auswertung.dcf_berechnen(analyse, t, manuell, s, dcf_cfg)
+zeilen = auswertung.mit_dcf(db.kennzahlen_fuer(con, [analyse_id]), analyse, t, manuell, s, dcf_cfg)
 gewichte, aktiv = auswertung.gewichte_und_aktiv(con, s)
 scores, gesamt = auswertung.bewertung(zeilen, e, s, gewichte, aktiv)
 
@@ -136,6 +145,107 @@ with d2:
     fig.update_layout(title="Beitrag zum Gesamtscore (Score × Gewicht)", xaxis=dict(range=[0, max(30, max(beitraege) * 1.2)]),
                       yaxis=dict(autorange="reversed"), height=380, margin=dict(l=10, r=10, t=50, b=30))
     st.plotly_chart(fig, width="stretch")
+
+# ------------------------------------------------------------ DCF-Bewertung
+st.subheader("DCF-Bewertung (Bear / Base / Bull)")
+if dcf_erg is None:
+    st.info("Diese Analyse stammt aus der Zeit vor dem DCF-Modell. Bitte oben auf „Neu analysieren“ tippen.")
+elif dcf_erg.grund:
+    st.warning(f"Kein DCF möglich: {dcf_erg.grund}")
+else:
+    w = dcf_ein.waehrung
+    c1, c2, c3, c4 = st.columns(4)
+    c1.metric(f"Fairer Wert, gewichtet ({w})", zahl(dcf_erg.fairer_wert, 2))
+    c2.metric(f"Kurs ({w})", zahl(dcf_ein.kurs, 2))
+    c3.metric("Sicherheitsmarge", prozent(dcf_erg.sicherheitsmarge),
+              help="(fairer Wert – Kurs) ÷ fairer Wert. Positiv = Kurs liegt unter dem fairen Wert.")
+    c4.metric("Abstand zum Bear-Wert", "–" if dcf_erg.bear_abstand is None else prozent(dcf_erg.bear_abstand),
+              help="Wie weit der Bear-Wert über (+) oder unter (–) dem Kurs liegt.")
+    if dcf_erg.bear_abstand is not None and dcf_erg.bear_abstand > 0:
+        st.success("Der Kurs liegt sogar unter dem fairen Wert im Bear-Szenario.")
+    if dcf_erg.eingepreist_text:
+        vergleich = (f" – zum Vergleich: erwartetes Wachstum {prozent(dcf_ein.wachstum)}"
+                     if dcf_erg.eingepreistes_wachstum is not None else "")
+        st.markdown(f"**Reverse DCF:** {dcf_erg.eingepreist_text}{vergleich}.")
+    if dcf_erg.manuell:
+        st.caption(f"✏️ Wachstum teilweise manuell gesetzt am {manuell['zeitpunkt'][:10]}"
+                   + (f": „{manuell['notiz']}“" if manuell.get("notiz") else ""))
+
+    sz = dcf_erg.szenarien
+    namen_sz = [x.name for x in sz.values()]
+    werte_sz = [x.fairer_wert or 0 for x in sz.values()]
+    fig = go.Figure(go.Bar(x=namen_sz, y=werte_sz, marker_color=["#c0392b", "#7f8c8d", "#27ae60"],
+                           text=[f"{zahl(v, 2)}" for v in werte_sz], textposition="auto"))
+    fig.add_hline(y=dcf_ein.kurs, line_dash="dash", annotation_text=f"Kurs {zahl(dcf_ein.kurs, 2)}",
+                  annotation_position="top left")
+    fig.add_hline(y=dcf_erg.fairer_wert, line_dash="dot", line_color="#2c3e50",
+                  annotation_text=f"gewichtet {zahl(dcf_erg.fairer_wert, 2)}", annotation_position="bottom right")
+    fig.update_layout(title=f"Fairer Wert je Aktie ({w})", height=330, margin=dict(l=10, r=10, t=40, b=20))
+    st.plotly_chart(fig, width="stretch")
+
+    annahmen = pd.DataFrame({
+        x.name: {
+            "Gewicht": prozent(dcf_erg.gewichte.get(n, 0) * 100, 0),
+            "Start-FCF": f"{betrag(x.start_fcf, w)} ({ {'ttm': '12 Monate', 'minimum': 'Minimum', 'durchschnitt': 'Durchschnitt'}.get(x.start_art, x.start_art) })",
+            "Wachstum Jahre 1–5": prozent(x.wachstum) + (" ✏️" if x.wachstum_manuell else ""),
+            "Langfristiges Wachstum": prozent(x.langfr_wachstum),
+            "Abzinsungssatz": prozent(x.abzinsung),
+            "Exit-Multiple (Kurs/FCF)": zahl(x.exit_multiple, 1),
+            "Endwert-Methode": x.endwert_methode or "–",
+            "Anteil Endwert": "–" if x.endwert_anteil is None else prozent(x.endwert_anteil, 0),
+            "Fairer Wert je Aktie": "–" if x.fairer_wert is None else f"{zahl(x.fairer_wert, 2)} {w}",
+            "Hinweis": x.hinweis or "",
+        } for n, x in sz.items()})
+    st.dataframe(annahmen, width="stretch")
+    st.caption(f"Abzinsung Base = risikofreier Zins {prozent(dcf_ein.zins, 2)} ({dcf_ein.zins_quelle}"
+               f"{', ' + dcf_ein.zins_datum if dcf_ein.zins_datum else ''}) + Marktrisikoprämie "
+               f"{prozent(float(dcf_cfg['marktrisikopraemie']))} + Branchenzuschlag {dcf_erg.sektor}. "
+               f"Nettocash {betrag(dcf_ein.nettocash, w)} (nur positiver Betrag wird addiert). "
+               f"Erwartetes Wachstum: {dcf_ein.wachstum_text}. Annahmen ändern in config/dcf.yaml.")
+
+    with st.expander("Empfindlichkeit: fairer Wert (Base) bei anderem Abzinsungssatz und Wachstum"):
+        emp = dcf_erg.empfindlichkeit
+        # Farbe = Abstand zum Kurs: grün = fairer Wert über dem Kurs, rot = darunter
+        abstand = [[(v - dcf_ein.kurs) / dcf_ein.kurs * 100 for v in zeile] for zeile in emp["werte"]]
+        fig = go.Figure(go.Heatmap(
+            z=abstand, x=[f"Wachstum {prozent(gw)}" for gw in emp["spalten"]],
+            y=[f"Abzinsung {prozent(r)}" for r in emp["zeilen"]],
+            text=[[zahl(v, 2) for v in zeile] for zeile in emp["werte"]], texttemplate="%{text}",
+            colorscale="RdYlGn", zmid=0, showscale=False,
+            hovertemplate="%{y}, %{x}: fairer Wert %{text}<extra></extra>"))
+        fig.update_layout(height=300, margin=dict(l=10, r=10, t=10, b=10), yaxis=dict(autorange="reversed"))
+        st.plotly_chart(fig, width="stretch")
+        st.caption(f"Fairer Wert je Aktie in {w}. Grün = über dem Kurs von {zahl(dcf_ein.kurs, 2)}, rot = darunter. "
+                   "Die Mitte entspricht dem Base-Szenario.")
+
+    with st.expander("✏️ Wachstum von Hand festlegen"):
+        st.write("Überschreibt das automatische Wachstum (Jahre 1–5) je Szenario, z. B. wenn die Vergangenheit "
+                 "durch Sondereffekte verzerrt ist. Leer lassen = automatisch. Die Eingabe wird mit Datum gespeichert.")
+        with st.form("dcf_manuell"):
+            spalten = st.columns(3)
+            neu = {}
+            for spalte, n in zip(spalten, ("bear", "base", "bull")):
+                vorschlag = manuell.get(n) if manuell else None
+                auto = dcf_modell.szenario_wachstum(n, dcf_ein.wachstum, dcf_cfg["szenarien"][n],
+                                                    float(s["optionen"]["wachstum_min"]),
+                                                    float(s["optionen"]["wachstum_max"]))
+                neu[n] = spalte.text_input(f"{sz[n].name} (%)", value="" if vorschlag is None else zahl(vorschlag, 1),
+                                           placeholder=f"automatisch: {zahl(auto, 1)}")
+            notiz = st.text_input("Begründung (optional)", value=(manuell or {}).get("notiz", "") or "")
+            k1, k2 = st.columns(2)
+            speichern = k1.form_submit_button("Speichern", type="primary")
+            zuruecksetzen = k2.form_submit_button("Alle auf automatisch zurücksetzen")
+        if speichern:
+            try:
+                werte = {n: (float(v.replace(",", ".")) if v.strip() else None) for n, v in neu.items()}
+            except ValueError:
+                st.error("Bitte Zahlen eingeben, z. B. 4,5")
+            else:
+                db.dcf_manuell_speichern(con, ticker, werte["bear"], werte["base"], werte["bull"], notiz)
+                st.rerun()
+        if zuruecksetzen:
+            db.dcf_manuell_speichern(con, ticker, None, None, None, "zurückgesetzt")
+            st.rerun()
 
 # ------------------------------------------------------------ Kennzahlen je Kategorie
 st.subheader("Kennzahlen")

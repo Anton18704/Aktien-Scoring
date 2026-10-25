@@ -30,7 +30,8 @@ CREATE TABLE IF NOT EXISTS analysen (
     ticker      TEXT NOT NULL REFERENCES titel(ticker) ON DELETE CASCADE,
     zeitpunkt   TEXT NOT NULL,
     waehrung    TEXT,
-    hinweise    TEXT
+    hinweise    TEXT,
+    dcf         TEXT
 );
 CREATE TABLE IF NOT EXISTS kennzahlen (
     id          INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -53,6 +54,13 @@ CREATE TABLE IF NOT EXISTS einschaetzungen (
     f1 REAL, f2 REAL, f3 REAL, f4 REAL,
     begruendung TEXT NOT NULL,
     gegenthese  TEXT
+);
+CREATE TABLE IF NOT EXISTS dcf_manuell (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    ticker      TEXT NOT NULL REFERENCES titel(ticker) ON DELETE CASCADE,
+    zeitpunkt   TEXT NOT NULL,
+    bear REAL, base REAL, bull REAL,
+    notiz       TEXT
 );
 CREATE TABLE IF NOT EXISTS einstellungen (
     schluessel  TEXT PRIMARY KEY,
@@ -78,10 +86,11 @@ def verbinden(pfad: Path | str = DB_DATEI) -> sqlite3.Connection:
 
 def _migrieren(con) -> None:
     """Ältere Datenbanken um neue Spalten ergänzen (bestehende Daten bleiben erhalten)."""
-    spalten = {r["name"] for r in con.execute("PRAGMA table_info(einschaetzungen)")}
-    if "gegenthese" not in spalten:
-        con.execute("ALTER TABLE einschaetzungen ADD COLUMN gegenthese TEXT")
-        con.commit()
+    for tabelle, spalte in (("einschaetzungen", "gegenthese"), ("analysen", "dcf")):
+        spalten = {r["name"] for r in con.execute(f"PRAGMA table_info({tabelle})")}
+        if spalte not in spalten:
+            con.execute(f"ALTER TABLE {tabelle} ADD COLUMN {spalte} TEXT")
+            con.commit()
 
 
 # ---------------------------------------------------------------- Titel
@@ -124,9 +133,10 @@ def sektor(t: dict) -> str:
 
 # ---------------------------------------------------------------- Analysen
 
-def analyse_speichern(con, ticker, waehrung, ergebnisse, kategorie_von, punkte_von, hinweise) -> int:
-    cur = con.execute("INSERT INTO analysen (ticker, zeitpunkt, waehrung, hinweise) VALUES (?, ?, ?, ?)",
-                      (ticker, jetzt(), waehrung, json.dumps(hinweise, ensure_ascii=False)))
+def analyse_speichern(con, ticker, waehrung, ergebnisse, kategorie_von, punkte_von, hinweise, dcf=None) -> int:
+    cur = con.execute("INSERT INTO analysen (ticker, zeitpunkt, waehrung, hinweise, dcf) VALUES (?, ?, ?, ?, ?)",
+                      (ticker, jetzt(), waehrung, json.dumps(hinweise, ensure_ascii=False),
+                       json.dumps(dcf, ensure_ascii=False) if dcf is not None else None))
     analyse_id = cur.lastrowid
     con.executemany(
         """INSERT INTO kennzahlen (analyse_id, schluessel, kategorie, rohwert, fixpunkte, punkte_damals,
@@ -177,6 +187,30 @@ def einschaetzungen_fuer(con, ticker) -> list[dict]:
 
 def einschaetzungen_alle(con) -> list[dict]:
     return [dict(r) for r in con.execute("SELECT * FROM einschaetzungen ORDER BY zeitpunkt, id")]
+
+
+# ---------------------------------------------------------------- DCF: manuelles Wachstum
+
+def dcf_manuell_speichern(con, ticker, bear, base, bull, notiz="") -> None:
+    """Neuer Eintrag (der letzte gilt). Alle drei None = zurück auf automatisch."""
+    con.execute("INSERT INTO dcf_manuell (ticker, zeitpunkt, bear, base, bull, notiz) VALUES (?,?,?,?,?,?)",
+                (ticker, jetzt(), bear, base, bull, (notiz or "").strip()))
+    con.commit()
+
+
+def dcf_manuell(con, ticker) -> dict | None:
+    r = con.execute("SELECT * FROM dcf_manuell WHERE ticker = ? ORDER BY zeitpunkt DESC, id DESC LIMIT 1",
+                    (ticker,)).fetchone()
+    if r is None or all(r[k] is None for k in ("bear", "base", "bull")):
+        return None
+    return dict(r)
+
+
+def dcf_manuell_alle(con) -> dict[str, dict]:
+    ergebnis = {}
+    for r in con.execute("SELECT * FROM dcf_manuell ORDER BY zeitpunkt, id"):
+        ergebnis[r["ticker"]] = dict(r)
+    return {t: r for t, r in ergebnis.items() if any(r[k] is not None for k in ("bear", "base", "bull"))}
 
 
 # ---------------------------------------------------------------- Einstellungen

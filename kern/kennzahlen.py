@@ -362,27 +362,50 @@ def fcf_rendite_historie(fd: Finanzdaten) -> Ergebnis:
     return e
 
 
-def erwartete_rendite(fd: Finanzdaten) -> Ergebnis:
-    """FCF-Rendite + nachhaltiges Wachstum je Aktie ≈ jährliche Rendite bei gleichbleibender Bewertung."""
-    e = Ergebnis("erwartete_rendite", hinweis=_ttm_hinweis(fd))
-    rendite = fcf_rendite(fd)
-    if rendite.rohwert is None:
-        e.grund = rendite.grund
-        return e
+def erwartetes_wachstum(fd: Finanzdaten) -> tuple[float | None, str, str | None]:
+    """Nachhaltiges Wachstum je Aktie: der niedrigere Wert aus geglättetem Umsatz- und FCF-je-Aktie-Wachstum,
+    begrenzt auf [wachstum_min, wachstum_max]. Liefert (Wachstum %, Rechenweg, Grund)."""
     kandidaten = [(n, r.rohwert) for n, r in (("Umsatz", umsatz_cagr(fd)), ("FCF je Aktie", fcf_je_aktie_cagr(fd)))
                   if r.rohwert is not None]
     if not kandidaten:
-        e.grund = "kein Wachstum berechenbar"
-        return e
-    name, g = min(kandidaten, key=lambda x: x[1])      # vorsichtig: das niedrigere Wachstum
+        return None, "", "kein Wachstum berechenbar"
+    _, g = min(kandidaten, key=lambda x: x[1])      # vorsichtig: das niedrigere Wachstum
     g_begrenzt = min(max(g, fd.wachstum_min), fd.wachstum_max)
-    e.rohwert = rendite.rohwert + g_begrenzt
-    e.quelle = rendite.quelle
-    e.datenstand = rendite.datenstand
-    e.details = (f"FCF-Rendite {prozent(rendite.rohwert, 2)} + Wachstum {prozent(g_begrenzt, 1)} "
-                 f"(niedrigerer Wert aus {', '.join(f'{n} {prozent(v)}' for n, v in kandidaten)}"
-                 + (f", begrenzt auf {zahl(fd.wachstum_min, 0)} bis {zahl(fd.wachstum_max, 0)} %" if g != g_begrenzt else "")
-                 + ")")
+    text = (f"{prozent(g_begrenzt, 1)} (niedrigerer Wert aus {', '.join(f'{n} {prozent(v)}' for n, v in kandidaten)}"
+            + (f", begrenzt auf {zahl(fd.wachstum_min, 0)} bis {zahl(fd.wachstum_max, 0)} %" if g != g_begrenzt else "")
+            + ")")
+    return g_begrenzt, text, None
+
+
+def dcf_eingaben(fd: Finanzdaten):
+    """Eingangswerte für das DCF-Modell (kern/dcf.py), ohne risikofreien Zins."""
+    from kern.dcf import DcfEingaben
+
+    e = DcfEingaben(waehrung=fd.waehrung)
+    mk, grund, mk_quelle = marktkapitalisierung(fd)
+    if mk is None:
+        e.grund = grund
+        return e
+    fcf, teile, text = fcf_ttm(fd)
+    e.fcf_ttm = fcf
+    for ende in geschaeftsjahre(fd, "ocf", 3):
+        wert, _ = _fcf_jahr(fd, ende)
+        if wert is not None:
+            e.fcf_jahre.append(wert)
+    if fcf is None and not e.fcf_jahre:
+        e.grund = text
+        return e
+    e.wachstum, e.wachstum_text, grund = erwartetes_wachstum(fd)
+    if grund:
+        e.grund = grund
+        return e
+    e.aktien, e.kurs = fd.aktien_aktuell.wert, fd.kurs_aktuell.wert
+    tag = stichtag(fd)
+    if tag is not None:
+        cash, _ = liquide_mittel(fd, tag)
+        e.nettocash = (cash or 0.0) - finanzschulden(fd, tag)[0]
+    e.datenstand = _iso(max([w.ende for w in teile] + ([tag] if tag else [])) if teile or tag else None)
+    e.quelle = (_quellen(*teile) + "; " if teile else "") + mk_quelle
     return e
 
 
@@ -840,7 +863,7 @@ def altman_z(fd: Finanzdaten) -> Ergebnis:
 
 
 ALLE = [
-    fcf_rendite, fcf_rendite_historie, ev_ebit_historie, ausschuettungsrendite, max_kursrueckgang, erwartete_rendite,
+    fcf_rendite, fcf_rendite_historie, ev_ebit_historie, ausschuettungsrendite, max_kursrueckgang,
     umsatz_cagr, fcf_je_aktie_cagr, umsatz_bestaendigkeit,
     roic, bruttomarge_stabilitaet, fcf_umwandlung, aktien_verwaesserung,
     nettoverschuldung_ebitda, zinsdeckung, entschuldungsdauer, altman_z,

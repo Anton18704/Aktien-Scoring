@@ -105,9 +105,17 @@ Die Sektor-Zuordnung steht in `config/sic_sektoren.yaml`.
   Gilt einheitlich für FCF-Rendite, FCF je Aktie, FCF-Umwandlung, Entschuldungsdauer und erwartete Rendite.
 - **FCF-Rendite vs. Historie:** aktuelle FCF-Rendite im Vergleich zum Median der FCF-Rendite an den letzten
   10 Geschäftsjahresenden (FCF ÷ verwässerte Aktien × Kurs am Stichtag). Positiv = günstiger als üblich.
-- **Erwartete Rendite:** FCF-Rendite + Wachstum. Als Wachstum zählt der **niedrigere** Wert aus Umsatz- und
-  FCF-je-Aktie-Wachstum, begrenzt auf –5 % bis 12 %. Unterstellt, dass die Bewertung gleich bleibt –
-  bei historisch teuren Aktien ist das eine optimistische Annahme (siehe „vs. Historie“).
+- **DCF-Sicherheitsmarge** (ersetzt die „erwartete Rendite“): drei Szenarien Bear / Base / Bull
+  (Gewicht 25 / 50 / 25). Je Szenario: Start-Free-Cashflow (nach Aktienvergütung), 5 Jahre Wachstum,
+  danach 5 Jahre gleichmäßig sinkend auf das langfristige Wachstum, Endwert als Durchschnitt aus
+  ewigem Wachstum (Gordon) und Branchen-Multiple. Abzinsung = 10-jährige US-Anleihe (live von FRED)
+  + Marktrisikoprämie + Branchenzuschlag. Gerechnet wird mit dem FCF nach Zinsen; Schulden stecken
+  damit schon in den Zinszahlungen, vorhandenes Nettocash wird addiert.
+  Sicherheitsmarge = (gewichteter fairer Wert – Kurs) ÷ fairer Wert.
+  Basis-Wachstum = der niedrigere Wert aus Umsatz- und FCF-je-Aktie-Wachstum (geglättet, begrenzt).
+  Alle Annahmen und die Branchenwerte stehen in **`config/dcf.yaml`**; Änderungen wirken sofort.
+  In der Detailansicht: fairer Wert je Szenario, Annahmen-Tabelle, Empfindlichkeitstabelle,
+  Reverse DCF (welches Wachstum im Kurs steckt) und **Wachstum von Hand festlegen** pro Titel.
 - **Marktkapitalisierung:** Aktienanzahl vom Deckblatt des letzten Berichts × letzter Schlusskurs.
   Ist die Kurswährung eine andere als die Berichtswährung, werden die betroffenen
   Kennzahlen ausgelassen (keine Umrechnung).
@@ -148,7 +156,9 @@ Die Sektor-Zuordnung steht in `config/sic_sektoren.yaml`.
 - **Gesamtscore:** wird bei jeder Anzeige aus gespeicherten Rohwerten, aktuellen Schwellen
   und aktuellen Gewichten berechnet. Im Verlauf gilt für jede Analyse die Einschätzung,
   die bis zur nächsten Analyse aktuell war.
-- **Datenquellen:** SEC EDGAR (companyfacts, submissions), max. 8 Anfragen/Sekunde,
+- **Datenquellen:** FRED (Federal Reserve Bank of St. Louis) für den risikofreien Zins; ist FRED nicht
+  erreichbar, nimmt die App den Ersatzwert aus `config/dcf.yaml` und zeigt einen Hinweis.
+  SEC EDGAR (companyfacts, submissions), max. 8 Anfragen/Sekunde,
   1 Tag Zwischenspeicher im Ordner `cache/`. Kurse: yfinance (Yahoo Finance) –
   optional Tiingo mit kostenlosem Schlüssel (Seite Einstellungen).
 
