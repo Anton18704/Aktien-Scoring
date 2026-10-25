@@ -80,11 +80,15 @@ def test_alle_kennzahlen_aus_rohdaten():
     assert ergebnisse["umsatz_bestaendigkeit"].rohwert == 10
     assert ergebnisse["bruttomarge_stabilitaet"].rohwert == pytest.approx(0, abs=1e-9)
     assert ergebnisse["fcf_umwandlung"].rohwert == pytest.approx(100)
-    assert ergebnisse["current_ratio"].rohwert == pytest.approx(1.5)
+    # Entschuldungsdauer: Nettoschulden ÷ FCF der letzten 12 Monate
+    assert ergebnisse["entschuldungsdauer"].rohwert == pytest.approx(
+        (u25 * 1.03 * 0.3 - u25 * 1.03 * 0.1) / (ttm_umsatz * 0.15))
     assert ergebnisse["zinsdeckung"].rohwert == pytest.approx(20)
     assert ergebnisse["max_kursrueckgang"].rohwert == pytest.approx(30, abs=1)
-    # ROIC: EBIT 20 % vom Umsatz × (1 – 21 %) ÷ (0,8 + 0,3 – 0,1) × Umsatz
-    assert ergebnisse["roic"].rohwert == pytest.approx(0.2 * (1 - 0.04 / 0.19) / 1.0 * 100)
+    # ROIC: EBIT 20 % vom Umsatz × (1 – Steuersatz) ÷ investiertes Kapital (Aktivseite, Ø Anfang/Ende)
+    # Kapital = Bilanzsumme 2,0 – Cash 0,1 – kurzfr. Verb. 0,4 = 1,5 × Umsatz; Vorjahr 1,5 × Umsatz / 1,08
+    kapital = 1.5 * (1 + 1 / 1.08) / 2
+    assert ergebnisse["roic"].rohwert == pytest.approx(0.2 * (1 - 0.04 / 0.19) / kapital * 100)
     # FCF je Aktie wächst schneller als der Umsatz, weil die Aktienanzahl sinkt
     assert ergebnisse["fcf_je_aktie_cagr"].rohwert > 8
     assert ergebnisse["nettoverschuldung_ebitda"].rohwert == pytest.approx(

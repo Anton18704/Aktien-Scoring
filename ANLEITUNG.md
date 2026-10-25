@@ -57,13 +57,16 @@ Datei (`aktien.db`) auf deinem Laptop speichert.
 
 | Seite | Was du dort machst |
 |---|---|
-| **Hauptliste** | Alle Titel mit Scores. Spaltenüberschrift antippen = sortieren. Zeile antippen → Details, Neu analysieren, Löschen. Unten: Knöpfe zur Kategorieansicht. |
+| **Hauptliste** | Alle Titel mit Scores. Spaltenüberschrift antippen = sortieren. Zeile antippen → Details, Neu analysieren, Löschen. „Alle Titel neu analysieren“ nach Updates. Unten: Knöpfe zur Kategorieansicht. ⛔ K.o. = eine Kategorie liegt unter der K.o.-Schwelle. |
 | **Import** | Einen Ticker eingeben, oder eine CSV-Datei mit einer Spalte `Ticker` hochladen. |
-| **Detailansicht** | Bei neuen Titeln zuerst deine Einschätzung (4 Regler + 1 Satz). Danach Netzdiagramm, Beiträge, alle Kennzahlen mit Rohwert, Punkten, Rechenweg, Quelle und Datenstand, Verlauf. Sektor hier von Hand ändern. |
+| **Detailansicht** | Bei neuen Titeln zuerst deine Einschätzung (4 Regler, 1 Satz Begründung, „Ich liege falsch, wenn …“). Danach Netzdiagramm, Beiträge, alle Kennzahlen mit Rohwert, Punkten, Rechenweg, Quelle und Datenstand, Verlauf. Sektor hier von Hand ändern. |
 | **Kategorieansicht** | Alle Titel nach einer Kategorie sortiert, mit den Rohwerten. |
 | **Einstellungen** | Gewichte (Regler), Kategorien an/aus, Standard wiederherstellen, Schwellen ansehen, E-Mail. |
 
 Eine erneute Analyse legt immer einen **neuen** Eintrag an. Ältere bleiben für den Verlauf erhalten.
+
+**Nach einem Update mit neuen Kennzahlen:** in der Hauptliste „Alle Titel neu analysieren“ ausführen.
+Ältere Analysen kennen die neuen Kennzahlen noch nicht; entfallene Kennzahlen werden ignoriert.
 
 ## 5. Rohwerte prüfen (AAPL, KO, CAT)
 
@@ -78,6 +81,8 @@ Das Prüfprogramm speichert nichts in der Datenbank.
 
 `config/schwellen.yaml` mit dem Editor (Rechtsklick → Öffnen mit → Editor) öffnen.
 Pro Kennzahl gibt es `bei_10`, `bei_5`, `bei_0`. Speichern, im Browser neu laden – fertig.
+Oben im Abschnitt `optionen` stehen außerdem: Abzug der Aktienvergütung (an/aus), K.o.-Schwelle
+und die Grenzen für das Wachstum in der erwarteten Rendite.
 Die Punkte aller Titel werden aus den gespeicherten Rohwerten neu berechnet.
 Die Sektor-Zuordnung steht in `config/sic_sektoren.yaml`.
 
@@ -94,7 +99,15 @@ Die Sektor-Zuordnung steht in `config/sic_sektoren.yaml`.
 - **Letzte 12 Monate (TTM):** letztes Geschäftsjahr + laufendes Jahr bis zum letzten
   Quartalsbericht – derselbe Zeitraum im Vorjahr. Ersatzweise Summe der letzten 4 Quartale.
   Gibt es nur Jahresberichte (z. B. 20-F), wird das letzte Geschäftsjahr verwendet und markiert.
-- **Free Cashflow:** operativer Cashflow – Zahlungen für Sachanlagen (`PaymentsToAcquirePropertyPlantAndEquipment`).
+- **Free Cashflow:** operativer Cashflow – Zahlungen für Sachanlagen (`PaymentsToAcquirePropertyPlantAndEquipment`)
+  – **Aktienvergütung** (`ShareBasedCompensation`). Die Aktienvergütung ist ein echter Kostenfaktor,
+  wird im operativen Cashflow aber wieder hinzugerechnet. Abschaltbar in `schwellen.yaml`.
+  Gilt einheitlich für FCF-Rendite, FCF je Aktie, FCF-Umwandlung, Entschuldungsdauer und erwartete Rendite.
+- **FCF-Rendite vs. Historie:** aktuelle FCF-Rendite im Vergleich zum Median der FCF-Rendite an den letzten
+  10 Geschäftsjahresenden (FCF ÷ verwässerte Aktien × Kurs am Stichtag). Positiv = günstiger als üblich.
+- **Erwartete Rendite:** FCF-Rendite + Wachstum. Als Wachstum zählt der **niedrigere** Wert aus Umsatz- und
+  FCF-je-Aktie-Wachstum, begrenzt auf –5 % bis 12 %. Unterstellt, dass die Bewertung gleich bleibt –
+  bei historisch teuren Aktien ist das eine optimistische Annahme (siehe „vs. Historie“).
 - **Marktkapitalisierung:** Aktienanzahl vom Deckblatt des letzten Berichts × letzter Schlusskurs.
   Ist die Kurswährung eine andere als die Berichtswährung, werden die betroffenen
   Kennzahlen ausgelassen (keine Umrechnung).
@@ -105,8 +118,15 @@ Die Sektor-Zuordnung steht in `config/sic_sektoren.yaml`.
   aktuellen EV/EBIT in %, negativ = günstiger als üblich.
 - **Aktiensplits:** Aktienzahlen werden mit der Split-Historie auf die heutige Basis gebracht.
 - **Maximaler Kursrückgang:** Schlusskurse, um Splits bereinigt, ohne Dividenden.
-- **ROIC:** NOPAT = EBIT × (1 – effektiver Steuersatz, begrenzt auf 0–35 %, ersatzweise 21 %);
-  investiertes Kapital zum Geschäftsjahresende; Durchschnitt der Jahresrenditen.
+- **Wachstum (Umsatz, FCF je Aktie):** geglättet – vom Durchschnitt dreier Jahre (z. B. 2018–2020) zum
+  Durchschnitt der letzten drei (2023–2025). Ein einzelnes Ausnahmejahr am Anfang oder Ende verzerrt
+  die Rate so weniger. Bei weniger als 8 Jahren Daten: von Jahr zu Jahr, markiert „ohne Glättung“.
+- **ROIC:** NOPAT = EBIT × (1 – effektiver Steuersatz, begrenzt auf 0–35 %, ersatzweise 21 %) ÷
+  investiertes Kapital über die **Aktivseite**: Bilanzsumme – Cash – Wertpapiere (kurz- und langfristig)
+  – nicht zinstragende kurzfristige Verbindlichkeiten; Durchschnitt aus Jahresanfang und -ende.
+  Funktioniert auch bei negativem Eigenkapital. Firmen, die von Kunden vorab bezahlt werden
+  (z. B. Apple), kommen dadurch auf sehr hohe Werte – das ist gewollt, es zeigt die Kapitalintensität.
+- **Verwässerung:** jährliche Veränderung der verwässerten Aktienanzahl über 5 Jahre.
 - **FCF-Umwandlung:** Summe FCF ÷ Summe Nettogewinn über 5 Jahre (stabiler als der
   Durchschnitt einzelner Jahresquoten, die bei kleinen Gewinnen ausreißen).
 - **Bruttomarge:** Bruttogewinn ÷ Umsatz; fehlt der Bruttogewinn, Umsatz – Herstellungskosten.
@@ -115,7 +135,14 @@ Die Sektor-Zuordnung steht in `config/sic_sektoren.yaml`.
 - **Altman Z-Score:** **Originalformel von 1968**, weil deine Schwellen (3,0 / 1,8) genau
   deren Zonen sind. Die Variante für Nicht-Produzenten (Z'') hätte andere Grenzen (2,6 / 1,1).
 - **Ausschüttungsrendite:** fehlt ein Posten (z. B. keine Dividende), zählt er als 0 und wird markiert.
-- **Sonderfälle:** Nettocash → 10 Punkte; kein Zinsaufwand ausgewiesen → 10 Punkte.
+- **Entschuldungsdauer** (ersetzt die Current Ratio): Nettoschulden ÷ Free Cashflow der letzten 12 Monate.
+  Die Current Ratio bestrafte starke Firmen, die von Kunden früh und von Lieferanten spät bezahlt werden.
+- **Sonderfälle:** Nettocash → 10 Punkte (Nettoverschuldung/EBITDA, Entschuldungsdauer);
+  Nettoschulden bei negativem FCF → 0 Punkte (Entschuldungsdauer); kein Zinsaufwand ausgewiesen →
+  10 Punkte nur ohne Finanzschulden, sonst wird die Zinsdeckung ausgelassen.
+- **K.o.-Warnung:** liegt eine eingeschaltete Kategorie unter 3 von 10 Punkten (einstellbar), erscheint
+  „⛔ K.o.“. Der Gesamtscore ändert sich dadurch nicht – die Warnung soll verhindern, dass eine
+  gravierende Schwäche im Durchschnitt untergeht.
 - **Der Sektor** verändert keine Scores. Bei Banken fehlen typischerweise Umlaufvermögen
   und EBIT – diese Kennzahlen werden dann aus den Daten heraus ausgelassen, nicht wegen des Sektors.
 - **Gesamtscore:** wird bei jeder Anzeige aus gespeicherten Rohwerten, aktuellen Schwellen

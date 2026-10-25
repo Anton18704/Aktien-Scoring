@@ -69,6 +69,9 @@ def kennzahlen_berechnen(ticker: str, frisch: bool = False) -> Rohdaten:
 
     fd, xbrl_hinweise = finanzdaten_aus(facts, kurse)
     hinweise += xbrl_hinweise
+    optionen = lade_schwellen()["optionen"]
+    fd.fcf_abzug_aktienverguetung = bool(optionen["fcf_abzug_aktienverguetung"])
+    fd.wachstum_min, fd.wachstum_max = float(optionen["wachstum_min"]), float(optionen["wachstum_max"])
     if not fd.jahre and not fd.bilanz:
         raise AnalyseFehler(f"Für {ticker} gibt es bei der SEC keine verwertbaren XBRL-Abschlussdaten "
                             "(z. B. weil das Unternehmen nicht bei der SEC berichtet).")

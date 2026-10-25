@@ -71,11 +71,16 @@ def einschaetzung_formular(vorlage, schluessel):
                  for i, f in enumerate(FRAGEN)]
         begruendung = st.text_input("Begründung in einem Satz (Pflichtfeld)",
                                     value=vorlage["begruendung"] if vorlage else "")
+        gegenthese = st.text_input(
+            "Ich liege falsch, wenn … (Pflichtfeld)", value=(vorlage.get("gegenthese") or "") if vorlage else "",
+            help="Was müsste passieren, damit deine Einschätzung falsch ist? Z. B. 'die Marge zwei Jahre "
+                 "in Folge sinkt' oder 'der Marktanteil in China unter 15 % fällt'. In einem Jahr kannst du "
+                 "prüfen, ob es eingetreten ist.")
         if st.form_submit_button("Einschätzung speichern", type="primary"):
-            if not begruendung.strip():
-                st.error("Bitte einen Satz Begründung eingeben.")
+            if not begruendung.strip() or not gegenthese.strip():
+                st.error("Bitte beide Textfelder ausfüllen.")
                 return
-            db.einschaetzung_speichern(con, ticker, *werte, begruendung)
+            db.einschaetzung_speichern(con, ticker, *werte, begruendung, gegenthese)
             st.rerun()
 
 
@@ -104,8 +109,11 @@ for h in json.loads(analyse["hinweise"] or "[]"):
 
 m1, m2 = st.columns([1, 3])
 m1.metric("Gesamtscore", "–" if gesamt.score is None else zahl(gesamt.score, 1) + " / 100")
-markierung = auswertung.markierung(gesamt)
-if markierung:
+markierung = auswertung.markierung(gesamt, s)
+if gesamt.ko:
+    m2.error(f"{markierung}\n\nMindestens eine Kategorie liegt unter {zahl(s['optionen']['ko_schwelle'], 1)} Punkten. "
+             "Der Score kann das durch Stärken in anderen Kategorien überdecken – bitte genau prüfen.")
+elif markierung:
     m2.warning(markierung)
 
 # ------------------------------------------------------------ Diagramme
@@ -139,6 +147,7 @@ for k in KATEGORIEN:
                 for i, f in enumerate(FRAGEN):
                     st.write(f"{f} **{zahl(e[f'f{i + 1}'], 0)}**")
                 st.write(f"Begründung: _{e['begruendung']}_ (vom {e['zeitpunkt'][:10]})")
+                st.write(f"Ich liege falsch, wenn: _{e.get('gegenthese') or '– (noch nicht angegeben)'}_")
             else:
                 st.write("Einschätzung offen.")
             st.markdown("**Einschätzung neu abgeben** (ältere bleiben im Verlauf erhalten)")

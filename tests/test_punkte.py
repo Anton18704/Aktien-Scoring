@@ -64,7 +64,7 @@ def test_fixpunkte_haben_vorrang():
 
 def test_alle_kennzahlen_der_konfiguration():
     s = lade_schwellen()
-    assert len(s["kennzahlen"]) == 14
+    assert len(s["kennzahlen"]) == 17
     for k in s["kennzahlen"].values():
         assert punkte(k["zehn"], k["zehn"], k["fuenf"], k["null"]) == 10
         assert punkte(k["fuenf"], k["zehn"], k["fuenf"], k["null"]) == 5

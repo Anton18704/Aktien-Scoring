@@ -35,9 +35,18 @@ class Gesamt:
     fehlende: list[str] = field(default_factory=list)
     verwendete_gewichte: dict[str, float] = field(default_factory=dict)   # nach Hochrechnung, Summe 1
     beitraege: dict[str, float] = field(default_factory=dict)             # Punkte am Gesamtscore (0–100)
+    ko: list[str] = field(default_factory=list)                           # Kategorien unter der K.o.-Schwelle
 
 
-def gesamtscore(kat_scores: dict[str, float | None], gewichte: dict[str, float], aktiv: dict[str, bool]) -> Gesamt:
+def ko_kategorien(kat_scores: dict[str, float | None], beteiligt, schwelle: float | None) -> list[str]:
+    """Eingeschaltete Kategorien, deren Score unter der K.o.-Schwelle liegt."""
+    if schwelle is None:
+        return []
+    return [k for k in KATEGORIEN if k in beteiligt and kat_scores.get(k) is not None and kat_scores[k] < schwelle]
+
+
+def gesamtscore(kat_scores: dict[str, float | None], gewichte: dict[str, float], aktiv: dict[str, bool],
+                ko_schwelle: float | None = None) -> Gesamt:
     """Gewichteter Durchschnitt der Kategorien, skaliert auf 0–100.
 
     Fehlende Kategorien werden ausgelassen und die übrigen Gewichte hochgerechnet.
@@ -53,4 +62,5 @@ def gesamtscore(kat_scores: dict[str, float | None], gewichte: dict[str, float],
         return Gesamt(None, unvollstaendig, offen, fehlende)
     verwendet = {k: w / summe for k, w in vorhanden.items()}
     beitraege = {k: kat_scores[k] * 10 * w for k, w in verwendet.items()}
-    return Gesamt(sum(beitraege.values()), unvollstaendig, offen, fehlende, verwendet, beitraege)
+    return Gesamt(sum(beitraege.values()), unvollstaendig, offen, fehlende, verwendet, beitraege,
+                  ko_kategorien(kat_scores, beteiligt, ko_schwelle))

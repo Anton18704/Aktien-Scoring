@@ -60,6 +60,8 @@ ZEITRAUM = {
     "aktienausgabe": ["us-gaap:ProceedsFromIssuanceOfCommonStock", "us-gaap:ProceedsFromStockOptionsExercised",
                       "us-gaap:ProceedsFromIssuanceOfSharesUnderIncentiveAndShareBasedCompensationPlans",
                       "ifrs-full:ProceedsFromIssuingShares"],
+    "aktienverguetung": ["us-gaap:ShareBasedCompensation", "us-gaap:AllocatedShareBasedCompensationExpense",
+                         "ifrs-full:AdjustmentsForSharebasedPayments"],
     "aktien_verwaessert": ["us-gaap:WeightedAverageNumberOfDilutedSharesOutstanding",
                            "ifrs-full:AdjustedWeightedAverageShares"],
 }
@@ -85,6 +87,8 @@ STICHTAG = {
                                     "ifrs-full:CurrentBorrowingsAndCurrentPortionOfNoncurrentBorrowings"],
     "kurzfr_kredite": ["us-gaap:ShortTermBorrowings", "ifrs-full:ShorttermBorrowings"],
     "commercial_paper": ["us-gaap:CommercialPaper"],
+    "langfr_wertpapiere": ["us-gaap:MarketableSecuritiesNoncurrent",
+                           "us-gaap:AvailableForSaleSecuritiesDebtSecuritiesNoncurrent"],
     "ltd_faellig_12m": ["us-gaap:LongTermDebtMaturitiesRepaymentsOfPrincipalInNextTwelveMonths"],
     "aktien_bilanz": ["us-gaap:CommonStockSharesOutstanding"],
 }
@@ -331,6 +335,7 @@ KONZEPT_NAMEN = {
     "nettogewinn": "Nettogewinn", "ocf": "Operativer Cashflow", "capex": "Investitionen", "abschreibungen":
     "Abschreibungen", "zinsaufwand": "Zinsaufwand", "steuern": "Steuern", "vorsteuergewinn": "Vorsteuergewinn",
     "dividenden": "Dividenden", "rueckkaeufe": "Aktienrückkäufe", "aktienausgabe": "Ausgabe neuer Aktien",
+    "aktienverguetung": "Aktienvergütung",
 }
 
 

@@ -35,7 +35,16 @@ def lade_schwellen(pfad: Path = SCHWELLEN_DATEI) -> dict:
         k["zehn"], k["fuenf"], k["null"] = zehn, fuenf, null
         if k["kategorie"] not in KATEGORIEN:
             raise KonfigFehler(f"{schluessel}: unbekannte Kategorie {k['kategorie']}.")
+    daten["optionen"] = {**OPTIONEN_STANDARD, **(daten.get("optionen") or {})}
     return daten
+
+
+OPTIONEN_STANDARD = {
+    "fcf_abzug_aktienverguetung": True,
+    "ko_schwelle": 3.0,
+    "wachstum_min": -5.0,
+    "wachstum_max": 12.0,
+}
 
 
 def kennzahlen_der_kategorie(schwellen: dict, kategorie: str) -> list[str]:

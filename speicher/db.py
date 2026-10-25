@@ -51,7 +51,8 @@ CREATE TABLE IF NOT EXISTS einschaetzungen (
     ticker      TEXT NOT NULL REFERENCES titel(ticker) ON DELETE CASCADE,
     zeitpunkt   TEXT NOT NULL,
     f1 REAL, f2 REAL, f3 REAL, f4 REAL,
-    begruendung TEXT NOT NULL
+    begruendung TEXT NOT NULL,
+    gegenthese  TEXT
 );
 CREATE TABLE IF NOT EXISTS einstellungen (
     schluessel  TEXT PRIMARY KEY,
@@ -71,7 +72,16 @@ def verbinden(pfad: Path | str = DB_DATEI) -> sqlite3.Connection:
     con.row_factory = sqlite3.Row
     con.execute("PRAGMA foreign_keys = ON")
     con.executescript(SCHEMA)
+    _migrieren(con)
     return con
+
+
+def _migrieren(con) -> None:
+    """Ältere Datenbanken um neue Spalten ergänzen (bestehende Daten bleiben erhalten)."""
+    spalten = {r["name"] for r in con.execute("PRAGMA table_info(einschaetzungen)")}
+    if "gegenthese" not in spalten:
+        con.execute("ALTER TABLE einschaetzungen ADD COLUMN gegenthese TEXT")
+        con.commit()
 
 
 # ---------------------------------------------------------------- Titel
@@ -149,11 +159,14 @@ def kennzahlen_fuer(con, analyse_ids: list[int]) -> list[dict]:
 
 # ---------------------------------------------------------------- Einschätzung
 
-def einschaetzung_speichern(con, ticker, f1, f2, f3, f4, begruendung) -> None:
+def einschaetzung_speichern(con, ticker, f1, f2, f3, f4, begruendung, gegenthese) -> None:
     if not begruendung or not begruendung.strip():
         raise ValueError("Die Begründung ist ein Pflichtfeld.")
-    con.execute("INSERT INTO einschaetzungen (ticker, zeitpunkt, f1, f2, f3, f4, begruendung) VALUES (?,?,?,?,?,?,?)",
-                (ticker, jetzt(), f1, f2, f3, f4, begruendung.strip()))
+    if not gegenthese or not gegenthese.strip():
+        raise ValueError("Das Feld 'Ich liege falsch, wenn …' ist ein Pflichtfeld.")
+    con.execute("INSERT INTO einschaetzungen (ticker, zeitpunkt, f1, f2, f3, f4, begruendung, gegenthese) "
+                "VALUES (?,?,?,?,?,?,?,?)",
+                (ticker, jetzt(), f1, f2, f3, f4, begruendung.strip(), gegenthese.strip()))
     con.commit()
 
 

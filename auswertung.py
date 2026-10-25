@@ -54,11 +54,14 @@ def e_score(e: dict | None) -> float | None:
 def bewertung(zeilen, einschaetzung, schwellen, gewichte, aktiv) -> tuple[dict, Gesamt]:
     scores = kategorie_scores(zeilen, schwellen)
     scores["E"] = e_score(einschaetzung)
-    return scores, gesamtscore(scores, gewichte, aktiv)
+    return scores, gesamtscore(scores, gewichte, aktiv, schwellen["optionen"]["ko_schwelle"])
 
 
-def markierung(g: Gesamt) -> str:
+def markierung(g: Gesamt, schwellen: dict | None = None) -> str:
     teile = []
+    if g.ko:
+        namen = (lambda k: f"{k} {schwellen['kategorien'][k]['kurz']}") if schwellen else (lambda k: k)
+        teile.append("⛔ K.o.: " + ", ".join(namen(k) for k in g.ko))
     if g.einschaetzung_offen:
         teile.append("Einschätzung offen")
     if g.unvollstaendig:
@@ -90,7 +93,7 @@ def uebersicht(con) -> pd.DataFrame:
             "Name": t["name"], "Ticker": t["ticker"], "Sektor": db.sektor(t),
             "Gesamtscore": None if g.score is None else round(g.score, 1),
             **{schwellen["kategorien"][k]["kurz"]: None if scores[k] is None else round(scores[k], 1) for k in KATEGORIEN},
-            "Hinweis": markierung(g),
+            "Hinweis": markierung(g, schwellen),
             "Letzte Analyse": zeitpunkte[aid][:16].replace("T", " "),
         })
     return pd.DataFrame(zeilen)
@@ -129,7 +132,7 @@ def verlauf(con, ticker: str) -> pd.DataFrame:
     for a, e in zip(analysen, einsch):
         scores, g = bewertung(zeilen[a["id"]], e, schwellen, gewichte, aktiv)
         daten.append({"Zeitpunkt": pd.Timestamp(a["zeitpunkt"]), "Gesamtscore": g.score,
-                      "Hinweis": markierung(g), **{k: scores[k] for k in KATEGORIEN}})
+                      "Hinweis": markierung(g, schwellen), **{k: scores[k] for k in KATEGORIEN}})
     return pd.DataFrame(daten)
 
 
@@ -159,14 +162,15 @@ def kategorie_ansicht(con, kategorie: str) -> pd.DataFrame:
         if kategorie == "E":
             zeile.update({"Geschäft verstanden": e and e["f1"], "Management": e and e["f2"],
                           "10 Jahre halten": e and e["f3"], "In 10 J. größer": e and e["f4"],
-                          "Begründung": e and e["begruendung"]})
+                          "Begründung": e and e["begruendung"],
+                          "Ich liege falsch, wenn …": e and e.get("gegenthese")})
         else:
             roh = {z["schluessel"]: z["rohwert"] for z in alle_zeilen[aid]}
             for s, n in namen.items():
                 einheit = f" [{einheiten[s]}]" if einheiten[s] else ""
                 zeile[n + einheit] = None if roh.get(s) is None else round(roh[s], 2)
         zeile["Gesamtscore"] = None if g.score is None else round(g.score, 1)
-        zeile["Hinweis"] = markierung(g)
+        zeile["Hinweis"] = markierung(g, schwellen)
         daten.append(zeile)
     df = pd.DataFrame(daten)
     if not df.empty:

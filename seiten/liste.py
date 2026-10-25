@@ -59,6 +59,22 @@ if zeile is not None:
             g.tabelle_zuruecksetzen("liste")
             st.rerun()
 
+with st.expander("🔄 Alle Titel neu analysieren"):
+    st.write(f"Holt für alle {len(df)} angezeigten Titel frische Daten und legt je eine neue Analyse an. "
+             "Nötig z. B. nach einem Update mit neuen Kennzahlen. Dauert einige Sekunden pro Titel.")
+    if st.button("Jetzt alle neu analysieren"):
+        fortschritt = st.progress(0.0)
+        fehler = []
+        for i, t in enumerate(df["Ticker"], start=1):
+            fortschritt.progress(i / len(df), text=f"{t} ({i} von {len(df)})")
+            if not g.neu_analysieren(t, still=True):
+                fehler.append(t)
+        g.tabelle_zuruecksetzen("liste")
+        if fehler:
+            st.error("Fehler bei: " + ", ".join(fehler))
+        else:
+            st.rerun()
+
 st.divider()
 st.subheader("Kategorieansicht öffnen")
 knoepfe = st.columns(len(KATEGORIEN))

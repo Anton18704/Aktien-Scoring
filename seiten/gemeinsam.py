@@ -53,10 +53,10 @@ def zu_kategorie(kategorie: str):
     st.switch_page(SEITE_KATEGORIE)
 
 
-def neu_analysieren(ticker: str):
+def neu_analysieren(ticker: str, still: bool = False):
     from analyse import AnalyseFehler, analysieren
 
-    with st.spinner(f"Analysiere {ticker} … (SEC-Daten und Kurse werden geladen)"):
+    with st.spinner(f"Analysiere {ticker} … (SEC-Daten und Kurse werden geladen)", show_time=not still):
         try:
             ergebnis = analysieren(verbindung(), ticker, frisch=True)
         except AnalyseFehler as ex:
@@ -65,7 +65,8 @@ def neu_analysieren(ticker: str):
         except Exception as ex:
             st.error(f"Unerwarteter Fehler bei {ticker}: {ex}")
             return None
-    st.toast(f"{ergebnis.name} neu analysiert.")
+    if not still:
+        st.toast(f"{ergebnis.name} neu analysiert.")
     return ergebnis
 
 

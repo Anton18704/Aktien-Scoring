@@ -20,6 +20,24 @@
 #  Achtung: "bei_5" muss zwischen "bei_10" und "bei_0" liegen.
 # =====================================================================
 
+# ---------------------------------------------------------------------
+#  Allgemeine Einstellungen
+# ---------------------------------------------------------------------
+optionen:
+  # Aktienvergütung an Mitarbeiter vom Free Cashflow abziehen (true = ja, false = nein).
+  # Sie ist ein echter Kostenfaktor, taucht im operativen Cashflow aber nicht auf.
+  # Eine Änderung wirkt erst nach "Neu analysieren".
+  fcf_abzug_aktienverguetung: true
+
+  # K.o.-Warnung: Liegt eine eingeschaltete Kategorie unter diesem Wert (0–10),
+  # erscheint beim Titel eine rote Warnung. Der Score selbst ändert sich nicht.
+  ko_schwelle: 3.0
+
+  # Erwartete Rendite = FCF-Rendite + Wachstum. Das Wachstum wird auf diesen
+  # Bereich begrenzt (in %), damit Ausreißer nicht unrealistische Renditen ergeben.
+  wachstum_min: -5.0
+  wachstum_max: 12.0
+
 kategorien:
   A:
     name: Sicherheitsmarge und Abwärtsschutz
@@ -49,10 +67,19 @@ kennzahlen:
     kategorie: A
     name: FCF-Rendite
     einheit: "%"
-    erklaerung: Free Cashflow (operativer Cashflow – Investitionen) der letzten 12 Monate ÷ Marktkapitalisierung
+    erklaerung: Free Cashflow (operativer Cashflow – Investitionen – Aktienvergütung) der letzten 12 Monate ÷ Marktkapitalisierung
     bei_10: 7.0
     bei_5: 5.5
     bei_0: 4.0
+
+  fcf_rendite_historie:
+    kategorie: A
+    name: FCF-Rendite vs. eigene Historie
+    einheit: "% Abw."
+    erklaerung: Abweichung der aktuellen FCF-Rendite vom Median der letzten 10 Geschäftsjahre (positiv = günstiger als üblich)
+    bei_10: 20.0
+    bei_5: 0.0
+    bei_0: -20.0
 
   ev_ebit_historie:
     kategorie: A
@@ -81,12 +108,21 @@ kennzahlen:
     bei_5: 40.0
     bei_0: 50.0
 
+  erwartete_rendite:
+    kategorie: A
+    name: Erwartete Rendite
+    einheit: "% p. a."
+    erklaerung: FCF-Rendite + Wachstum je Aktie (der niedrigere Wert aus Umsatz- und FCF-je-Aktie-Wachstum); grobe jährliche Rendite bei gleichbleibender Bewertung
+    bei_10: 10.0
+    bei_5: 8.0
+    bei_0: 6.0
+
   # ---------- B. Langfristiges Wachstum ----------
   umsatz_cagr:
     kategorie: B
     name: Umsatzwachstum (CAGR 5 J.)
     einheit: "%"
-    erklaerung: Durchschnittliches jährliches Umsatzwachstum über 5 Geschäftsjahre
+    erklaerung: Jährliches Umsatzwachstum über 5 Jahre, geglättet (Durchschnitt von 3 Jahren am Anfang und am Ende)
     bei_10: 10.0
     bei_5: 7.5
     bei_0: 5.0
@@ -95,7 +131,7 @@ kennzahlen:
     kategorie: B
     name: Wachstum FCF je Aktie (CAGR 5 J.)
     einheit: "%"
-    erklaerung: Durchschnittliches jährliches Wachstum des Free Cashflows je verwässerter Aktie über 5 Geschäftsjahre
+    erklaerung: Jährliches Wachstum des Free Cashflows je verwässerter Aktie über 5 Jahre, geglättet (Durchschnitt von 3 Jahren am Anfang und am Ende)
     bei_10: 10.0
     bei_5: 7.5
     bei_0: 5.0
@@ -114,7 +150,7 @@ kennzahlen:
     kategorie: C
     name: ROIC (Ø 5 J.)
     einheit: "%"
-    erklaerung: NOPAT ÷ (Eigenkapital + Finanzschulden – Cash), Durchschnitt der letzten 5 Geschäftsjahre
+    erklaerung: NOPAT ÷ investiertes Kapital (Bilanzsumme – Cash – Wertpapiere – nicht zinstragende kurzfristige Verbindlichkeiten, Ø Jahresanfang/-ende), Durchschnitt der letzten 5 Geschäftsjahre
     bei_10: 15.0
     bei_5: 11.5
     bei_0: 8.0
@@ -137,6 +173,15 @@ kennzahlen:
     bei_5: 80.0
     bei_0: 70.0
 
+  aktien_verwaesserung:
+    kategorie: C
+    name: Verwässerung (Aktienanzahl p. a.)
+    einheit: "% p. a."
+    erklaerung: Jährliche Veränderung der verwässerten Aktienanzahl über 5 Jahre (negativ = Rückkäufe, positiv = Verwässerung)
+    bei_10: -1.0
+    bei_5: 0.5
+    bei_0: 2.0
+
   # ---------- D. Gesunde Bilanz ----------
   nettoverschuldung_ebitda:
     kategorie: D
@@ -156,14 +201,14 @@ kennzahlen:
     bei_5: 7.0
     bei_0: 4.0
 
-  current_ratio:
+  entschuldungsdauer:
     kategorie: D
-    name: Current Ratio
-    einheit: "x"
-    erklaerung: Umlaufvermögen ÷ kurzfristige Verbindlichkeiten zum letzten Bilanzstichtag
-    bei_10: 1.5
-    bei_5: 1.25
-    bei_0: 1.0
+    name: Entschuldungsdauer
+    einheit: "Jahre"
+    erklaerung: Nettoschulden ÷ Free Cashflow der letzten 12 Monate; bei Nettocash 10 Punkte, bei negativem FCF 0 Punkte
+    bei_10: 2.0
+    bei_5: 4.0
+    bei_0: 6.0
 
   altman_z:
     kategorie: D

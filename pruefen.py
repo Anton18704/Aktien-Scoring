@@ -13,7 +13,7 @@ from kern.konfig import lade_schwellen, sektor_fuer_sic
 from kern.punkte import punkte_fuer
 
 GRUNDWERTE = ["umsatz", "bruttogewinn", "ebit", "nettogewinn", "ocf", "capex", "abschreibungen", "zinsaufwand",
-              "dividenden", "rueckkaeufe", "aktienausgabe"]
+              "dividenden", "rueckkaeufe", "aktienausgabe", "aktienverguetung"]
 
 
 def bericht(ticker: str) -> str:

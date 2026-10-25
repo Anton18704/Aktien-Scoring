@@ -56,3 +56,13 @@ def test_ausgeschaltete_kategorie_zaehlt_nicht_als_fehlend():
 def test_nichts_vorhanden():
     g = gesamtscore({k: None for k in "ABCDE"}, STANDARD, ALLE_AN)
     assert g.score is None
+
+
+def test_ko_kategorien():
+    g = gesamtscore({"A": 8, "B": 2.5, "C": 10, "D": 4, "E": None}, STANDARD, ALLE_AN, ko_schwelle=3)
+    assert g.ko == ["B"]
+    # ausgeschaltete Kategorien lösen keinen K.o. aus
+    g = gesamtscore({"A": 8, "B": 2.5, "C": 10, "D": 4, "E": None}, STANDARD, {**ALLE_AN, "B": False}, ko_schwelle=3)
+    assert g.ko == []
+    # ohne Schwelle kein K.o.
+    assert gesamtscore({"A": 0, "B": 0, "C": 0, "D": 0, "E": 0}, STANDARD, ALLE_AN).ko == []

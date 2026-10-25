@@ -237,13 +237,21 @@ def test_zinsdeckung(fd_basis):
     assert k.zinsdeckung(fd_basis).rohwert == pytest.approx(10)
 
 
-def test_current_ratio(fd_basis):
-    assert k.current_ratio(fd_basis).rohwert == pytest.approx(1.5)
+def test_entschuldungsdauer(fd_basis):
+    # Nettoschulden 475 – 150 = 325, FCF 180 – 30 = 150
+    e = k.entschuldungsdauer(fd_basis)
+    assert e.rohwert == pytest.approx(325 / 150)
 
 
-def test_current_ratio_bank(fd_basis):
-    del fd_basis.bilanz["umlaufvermoegen"]
-    assert k.current_ratio(fd_basis).rohwert is None
+def test_entschuldungsdauer_nettocash(fd_basis):
+    fd_basis.bilanz["cash"] = [w(1000, "2025-12-31")]
+    assert k.entschuldungsdauer(fd_basis).fixpunkte == 10
+
+
+def test_entschuldungsdauer_negativer_fcf(fd_basis):
+    fd_basis.ttm["capex"] = w(500, "2025-12-31")
+    e = k.entschuldungsdauer(fd_basis)
+    assert e.fixpunkte == 0 and "negativer Free Cashflow" in e.hinweis
 
 
 def test_altman_z(fd_basis):
@@ -256,9 +264,9 @@ def test_altman_ohne_gewinnruecklagen(fd_basis):
     assert "Gewinnrücklagen" in k.altman_z(fd_basis).grund
 
 
-def test_alle_berechnen_liefert_14(fd_basis):
+def test_alle_berechnen_passt_zur_konfiguration(fd_basis):
     ergebnisse = k.alle_berechnen(fd_basis)
-    assert len(ergebnisse) == 14
+    assert len(ergebnisse) == 17
     assert {e.schluessel for e in ergebnisse} == set(__import__("kern.konfig", fromlist=["x"]).lade_schwellen()["kennzahlen"])
 
 
@@ -300,3 +308,100 @@ def test_zinsdeckung_schuldenfrei_gibt_zehn(fd_basis):
     for kz in ("ltd_langfristig", "ltd_kurzfristig", "commercial_paper"):
         del fd_basis.bilanz[kz]
     assert k.zinsdeckung(fd_basis).fixpunkte == 10
+
+
+
+# ------------------------------------------------------------ Verbesserungen aus der Analysten-Durchsicht
+
+def test_fcf_abzug_aktienverguetung(fd_basis):
+    fd_basis.ttm["aktienverguetung"] = w(50, "2025-12-31")
+    assert k.fcf_rendite(fd_basis).rohwert == pytest.approx((150 - 50) / 2000 * 100)
+    fd_basis.fcf_abzug_aktienverguetung = False
+    assert k.fcf_rendite(fd_basis).rohwert == pytest.approx(150 / 2000 * 100)
+
+
+def test_fcf_ohne_ausgewiesene_aktienverguetung(fd_basis):
+    e = k.fcf_rendite(fd_basis)
+    assert e.rohwert == pytest.approx(150 / 2000 * 100)
+    assert "keine Aktienvergütung ausgewiesen" in e.details
+
+
+def test_wachstum_geglaettet_daempft_ausreisser():
+    """Ein einzelnes schwaches Endjahr (wie KO 2025) verzerrt die geglättete Rate deutlich weniger."""
+    fd = k.Finanzdaten()
+    werte = [100 * 1.08 ** i for i in range(11)]
+    werte[-1] = werte[-2] * 0.6                         # Einbruch im letzten Jahr
+    fd.jahre["umsatz"] = jahresreihe(werte)
+    geglaettet = k.umsatz_cagr(fd).rohwert
+    punkt_zu_punkt = ((werte[-1] / werte[-6]) ** (1 / 5) - 1) * 100
+    assert punkt_zu_punkt < -2
+    assert 0 < geglaettet < 8
+    assert "Ø GJ" in k.umsatz_cagr(fd).details
+
+
+def test_wachstum_ohne_glaettung_bei_wenigen_jahren():
+    fd = k.Finanzdaten()
+    fd.jahre["umsatz"] = jahresreihe([100 * 1.1 ** i for i in range(6)])
+    e = k.umsatz_cagr(fd)
+    assert e.rohwert == pytest.approx(10)
+    assert "ohne Glättung" in e.hinweis
+
+
+def _historie(fd, fcf_je_jahr=100, kurs=10):
+    jahre = [date(2015 + i, 12, 31) for i in range(10)]
+    fd.jahre["ocf"] = [w(fcf_je_jahr, d) for d in jahre]
+    fd.jahre["capex"] = [w(0, d) for d in jahre]
+    fd.jahre["aktien_verwaessert"] = [w(100, d) for d in jahre]
+    fd.kurse = pd.Series(float(kurs), index=pd.bdate_range("2015-01-01", "2025-12-31"))
+
+
+def test_fcf_rendite_historie(fd_basis):
+    _historie(fd_basis)            # historisch: 100 / (100 × 10) = 10 %
+    e = k.fcf_rendite_historie(fd_basis)
+    aktuell = 150 / 2000 * 100     # 7,5 %
+    assert e.rohwert == pytest.approx((aktuell / 10 - 1) * 100)
+
+
+def test_erwartete_rendite_nimmt_niedrigeres_wachstum():
+    fd = k.Finanzdaten(kurs_waehrung="USD")
+    fd.ttm = {"ocf": w(60, "2025-12-31"), "capex": w(0, "2025-12-31")}
+    fd.aktien_aktuell, fd.kurs_aktuell = w(100, "2025-12-31"), w(10, "2025-12-31")   # FCF-Rendite 6 %
+    fd.jahre["umsatz"] = jahresreihe([100 * 1.10 ** i for i in range(11)])           # 10 %
+    fd.jahre["ocf"] = jahresreihe([50 * 1.04 ** i for i in range(11)])               # 4 %
+    fd.jahre["capex"] = jahresreihe([0] * 11)
+    fd.jahre["aktien_verwaessert"] = jahresreihe([100] * 11)
+    e = k.erwartete_rendite(fd)
+    assert e.rohwert == pytest.approx(6 + 4)
+
+
+def test_erwartete_rendite_wachstum_begrenzt():
+    fd = k.Finanzdaten(kurs_waehrung="USD")
+    fd.ttm = {"ocf": w(50, "2025-12-31"), "capex": w(0, "2025-12-31")}
+    fd.aktien_aktuell, fd.kurs_aktuell = w(100, "2025-12-31"), w(10, "2025-12-31")   # 5 %
+    fd.jahre["umsatz"] = jahresreihe([100 * 1.30 ** i for i in range(11)])           # 30 %
+    e = k.erwartete_rendite(fd)
+    assert e.rohwert == pytest.approx(5 + 12)
+    assert "begrenzt" in e.details
+
+
+def test_aktien_verwaesserung():
+    fd = k.Finanzdaten()
+    fd.jahre["aktien_verwaessert"] = jahresreihe([100, 99, 98, 97, 96, 95])
+    assert k.aktien_verwaesserung(fd).rohwert == pytest.approx(((95 / 100) ** 0.2 - 1) * 100)
+
+
+def test_roic_ueber_aktivseite(fd_basis):
+    # 1525 = Bilanzsumme 2000 – Cash/Wertpapiere 150 – (kurzfr. Verb. 400 – kurzfr. Schulden 75)
+    kapital, methode = k.investiertes_kapital(fd_basis, date(2025, 12, 31))
+    assert kapital == pytest.approx(1525) and methode == "Aktivseite"
+
+
+def test_roic_funktioniert_bei_negativem_eigenkapital():
+    """Wie bei McDonald's: Eigenkapital negativ nach Rückkäufen, ROIC trotzdem berechenbar."""
+    fd = k.Finanzdaten()
+    jahre = [date(2021 + i, 12, 31) for i in range(5)]
+    fd.jahre["ebit"] = [w(100, d) for d in jahre]
+    for konzept, wert in {"bilanzsumme": 1000, "kurzfr_verbindlichkeiten": 200, "cash": 100, "eigenkapital": -300}.items():
+        fd.bilanz[konzept] = [w(wert, d) for d in jahre]
+    e = k.roic(fd)
+    assert e.rohwert == pytest.approx(100 * (1 - 0.21) / 700 * 100)

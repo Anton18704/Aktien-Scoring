@@ -1,4 +1,4 @@
-"""Berechnung der 14 Kennzahlen der Kategorien A–D.
+"""Berechnung der Kennzahlen der Kategorien A–D.
 
 Dieses Modul kennt weder die SEC noch die Oberfläche. Es bekommt fertig
 aufbereitete Werte (``Finanzdaten``) und liefert pro Kennzahl ein
@@ -9,10 +9,10 @@ Begriffe ("Konzepte") für die Eingangswerte:
   Zeitraumwerte (ttm = letzte 12 Monate, jahre = Geschäftsjahre):
     umsatz, bruttogewinn, herstellkosten, ebit, nettogewinn, ocf, capex,
     abschreibungen, zinsaufwand, steuern, vorsteuergewinn, dividenden,
-    rueckkaeufe, aktienausgabe, aktien_verwaessert
+    rueckkaeufe, aktienausgabe, aktien_verwaessert, aktienverguetung
   Stichtagswerte (bilanz):
     bilanzsumme, umlaufvermoegen, kurzfr_verbindlichkeiten, verbindlichkeiten,
-    eigenkapital, gewinnruecklagen, cash, kurzfr_wertpapiere,
+    eigenkapital, gewinnruecklagen, cash, kurzfr_wertpapiere, langfr_wertpapiere,
     ltd_gesamt, ltd_langfristig, ltd_kurzfristig, schulden_kurzfristig_gesamt,
     kurzfr_kredite, commercial_paper
 """
@@ -47,6 +47,10 @@ class Finanzdaten:
     kurse: pd.Series | None = None                # Schlusskurse (um Splits bereinigt), Index = Datum
     kurs_waehrung: str | None = None
     kurs_quelle: str = ""
+    # Einstellungen (aus config/schwellen.yaml, Abschnitt "optionen")
+    fcf_abzug_aktienverguetung: bool = True
+    wachstum_min: float = -5.0                    # Grenzen für das Wachstum in der erwarteten Rendite (%)
+    wachstum_max: float = 12.0
 
 
 @dataclass
@@ -129,9 +133,18 @@ def finanzschulden(fd: Finanzdaten, datum: date) -> tuple[float, str]:
     vergangenen 13 Monate verwendet und in der Quelle vermerkt.
     Fehlen alle Angaben, werden 0 Finanzschulden angenommen.
     """
+    teile = schulden_teile(fd, datum)
+    if teile is None:
+        return 0.0, "keine Finanzschulden ausgewiesen"
+    lang_teil, kurz_teil, quelle = teile
+    return lang_teil + kurz_teil, quelle
+
+
+def schulden_teile(fd: Finanzdaten, datum: date) -> tuple[float, float, str] | None:
+    """(langfristiger Teil, kurzfristiger Teil, Quelle) der Finanzschulden, Regeln siehe ``finanzschulden``."""
     stand = _schulden_stichtag(fd, datum)
     if stand is None:
-        return 0.0, "keine Finanzschulden ausgewiesen"
+        return None
     b = lambda k: bilanzwert(fd, k, stand)  # noqa: E731
     gesamt, lang, kurz_ltd = b("ltd_gesamt"), b("ltd_langfristig"), b("ltd_kurzfristig")
     kurz_gesamt, kredite, cp = b("schulden_kurzfristig_gesamt"), b("kurzfr_kredite"), b("commercial_paper")
@@ -161,7 +174,7 @@ def finanzschulden(fd: Finanzdaten, datum: date) -> tuple[float, str]:
         quelle += "; kurzfristiger Teil ersatzweise = Tilgungen der nächsten 12 Monate"
     if abs((stand - datum).days) > 5:
         quelle = f"Schulden zum {stand:%d.%m.%Y} (zum {datum:%d.%m.%Y} nicht im Standardformat gemeldet); " + quelle
-    return lang_teil + kurz_teil, quelle
+    return lang_teil, kurz_teil, quelle
 
 
 SCHULD_KONZEPTE = ("ltd_gesamt", "ltd_langfristig", "ltd_kurzfristig", "schulden_kurzfristig_gesamt",
@@ -219,11 +232,83 @@ def _ttm_hinweis(fd: Finanzdaten) -> str:
     return "letztes Geschäftsjahr statt 12 Monate (keine Quartalsdaten)" if fd.ttm_ist_geschaeftsjahr else ""
 
 
+def _fcf(fd: Finanzdaten, ocf: Wert | None, capex: Wert | None, sbc: Wert | None):
+    """Free Cashflow = OCF – Capex (– Aktienvergütung, falls eingeschaltet).
+
+    Liefert (FCF, verwendete Werte, Rechenweg-Text) oder (None, [], Grund).
+    """
+    if ocf is None:
+        return None, [], "operativer Cashflow nicht gefunden"
+    if capex is None:
+        return None, [], "Investitionen (Capex) nicht gefunden"
+    fcf = ocf.wert - capex.wert
+    text = f"OCF {betrag(ocf.wert, fd.waehrung)} – Capex {betrag(capex.wert, fd.waehrung)}"
+    teile = [ocf, capex]
+    if fd.fcf_abzug_aktienverguetung:
+        if sbc is not None:
+            fcf -= sbc.wert
+            teile.append(sbc)
+            text += f" – Aktienvergütung {betrag(sbc.wert, fd.waehrung)}"
+        else:
+            text += " (keine Aktienvergütung ausgewiesen)"
+    return fcf, teile, text
+
+
+def fcf_ttm(fd: Finanzdaten):
+    """Free Cashflow der letzten 12 Monate: (FCF, Werte, Text) oder (None, [], Grund)."""
+    return _fcf(fd, _ttm(fd, "ocf"), _ttm(fd, "capex"), _ttm(fd, "aktienverguetung"))
+
+
 def _fcf_jahr(fd: Finanzdaten, ende: date) -> tuple[float | None, list[Wert]]:
-    ocf, capex = jahreswert(fd, "ocf", ende), jahreswert(fd, "capex", ende)
-    if ocf is None or capex is None:
-        return None, []
-    return ocf.wert - capex.wert, [ocf, capex]
+    fcf, teile, _ = _fcf(fd, jahreswert(fd, "ocf", ende), jahreswert(fd, "capex", ende),
+                         jahreswert(fd, "aktienverguetung", ende))
+    return fcf, teile
+
+
+def _cagr(start: float, ende: float, jahre: float) -> float:
+    return ((ende / start) ** (1 / jahre) - 1) * 100
+
+
+def wachstum_geglaettet(fd: Finanzdaten, enden: list[date], wert_im_jahr, jahre: int = 5, fenster: int = 3):
+    """Jährliches Wachstum vom Durchschnitt der ersten ``fenster`` Jahre zum Durchschnitt der letzten.
+
+    Beispiel bei 5 Jahren: Ø GJ 2018–2020 → Ø GJ 2023–2025. Die Mitten der beiden Fenster liegen
+    5 Jahre auseinander. Einzelne Ausreißerjahre verzerren das Ergebnis dadurch weniger.
+    Gibt es zu wenig Jahre, wird von Jahr zu Jahr gerechnet (Hinweis "ohne Glättung").
+
+    Liefert (CAGR in %, Rechenweg, Hinweis, Grund).
+    """
+    enden = sorted(enden)
+    if not enden:
+        return None, "", "", "keine Jahreswerte"
+    jetzt = enden[-1]
+    ziel_start = jetzt - timedelta(days=round(365.25 * jahre))
+    # Geglättet: Fenster am Ende und gleich großes Fenster ``jahre`` Jahre davor
+    if len(enden) >= jahre + fenster:
+        ende_fenster = enden[-fenster:]
+        start_fenster = enden[-(jahre + fenster):-jahre]
+        if _nahe(start_fenster[-1], ziel_start, 20):
+            a = [wert_im_jahr(d) for d in start_fenster]
+            b = [wert_im_jahr(d) for d in ende_fenster]
+            if None not in a and None not in b:
+                sa, sb = sum(a) / fenster, sum(b) / fenster
+                if sa <= 0 or sb <= 0:
+                    return None, "", "", (f"Durchschnittswert nicht positiv (Ø {start_fenster[0]:%Y}–{start_fenster[-1]:%Y}: "
+                                          f"{zahl(sa, 2)}, Ø {ende_fenster[0]:%Y}–{ende_fenster[-1]:%Y}: {zahl(sb, 2)})")
+                text = (f"Ø GJ {start_fenster[0]:%Y}–{start_fenster[-1]:%Y}: {zahl(sa, 2)} → "
+                        f"Ø GJ {ende_fenster[0]:%Y}–{ende_fenster[-1]:%Y}: {zahl(sb, 2)}")
+                return _cagr(sa, sb, jahre), text, "", None
+    # Ersatz: Punkt zu Punkt
+    start = next((d for d in enden if _nahe(d, ziel_start, 20)), None)
+    if start is None:
+        return None, "", "", f"keine Werte von vor {jahre} Jahren"
+    a, b = wert_im_jahr(start), wert_im_jahr(jetzt)
+    if a is None or b is None:
+        return None, "", "", "Werte für Anfangs- oder Endjahr fehlen"
+    if a <= 0 or b <= 0:
+        return None, "", "", f"Wert nicht positiv ({zahl(a, 2)} → {zahl(b, 2)}) – Wachstumsrate nicht sinnvoll"
+    text = f"GJ {start:%Y}: {zahl(a, 2)} → GJ {jetzt:%Y}: {zahl(b, 2)}"
+    return _cagr(a, b, jahre), text, "ohne Glättung (zu wenige Jahre)", None
 
 
 # ---------------------------------------------------------------------
@@ -232,23 +317,72 @@ def _fcf_jahr(fd: Finanzdaten, ende: date) -> tuple[float | None, list[Wert]]:
 
 def fcf_rendite(fd: Finanzdaten) -> Ergebnis:
     e = Ergebnis("fcf_rendite", hinweis=_ttm_hinweis(fd))
-    ocf, capex = _ttm(fd, "ocf"), _ttm(fd, "capex")
-    if ocf is None:
-        e.grund = "operativer Cashflow nicht gefunden"
-        return e
-    if capex is None:
-        e.grund = "Investitionen (Capex) nicht gefunden"
+    fcf, teile, text = fcf_ttm(fd)
+    if fcf is None:
+        e.grund = text
         return e
     mk, grund, mk_quelle = marktkapitalisierung(fd)
     if mk is None:
         e.grund = grund
         return e
-    fcf = ocf.wert - capex.wert
     e.rohwert = fcf / mk * 100
-    e.quelle = _quellen(ocf, capex) + "; " + mk_quelle
-    e.datenstand = _iso(ocf.ende)
-    e.details = (f"FCF {betrag(fcf, fd.waehrung)} (OCF {betrag(ocf.wert, fd.waehrung)} – Capex "
-                 f"{betrag(capex.wert, fd.waehrung)}) ÷ Marktkap. {betrag(mk, fd.waehrung)}")
+    e.quelle = _quellen(*teile) + "; " + mk_quelle
+    e.datenstand = _iso(teile[0].ende)
+    e.details = f"FCF {betrag(fcf, fd.waehrung)} ({text}) ÷ Marktkap. {betrag(mk, fd.waehrung)}"
+    return e
+
+
+def fcf_rendite_historie(fd: Finanzdaten) -> Ergebnis:
+    """Aktuelle FCF-Rendite im Vergleich zum Median der letzten 10 Geschäftsjahre (positiv = günstiger)."""
+    e = Ergebnis("fcf_rendite_historie", hinweis=_ttm_hinweis(fd))
+    aktuell = fcf_rendite(fd)
+    if aktuell.rohwert is None:
+        e.grund = aktuell.grund
+        return e
+    historie = []
+    for ende in geschaeftsjahre(fd, "ocf", 10):
+        fcf, _ = _fcf_jahr(fd, ende)
+        aktien = jahreswert(fd, "aktien_verwaessert", ende)
+        kurs = _kurs_am(fd.kurse, ende)
+        if fcf is None or aktien is None or kurs is None or aktien.wert <= 0:
+            continue
+        historie.append(fcf / (aktien.wert * kurs) * 100)
+    if len(historie) < 5:
+        e.grund = f"nur {len(historie)} Jahre mit FCF-Rendite-Historie (mindestens 5 nötig)"
+        return e
+    median = statistics.median(historie)
+    if median <= 0:
+        e.grund = "Median der historischen FCF-Rendite nicht positiv – Vergleich nicht sinnvoll"
+        return e
+    e.rohwert = (aktuell.rohwert / median - 1) * 100
+    e.quelle = aktuell.quelle + f"; historische Kurse: {fd.kurs_quelle}"
+    e.datenstand = aktuell.datenstand
+    e.details = (f"aktuell {prozent(aktuell.rohwert, 2)}, Median {len(historie)} Geschäftsjahre "
+                 f"{prozent(median, 2)} (positiv = höhere Rendite als üblich, also günstiger)")
+    return e
+
+
+def erwartete_rendite(fd: Finanzdaten) -> Ergebnis:
+    """FCF-Rendite + nachhaltiges Wachstum je Aktie ≈ jährliche Rendite bei gleichbleibender Bewertung."""
+    e = Ergebnis("erwartete_rendite", hinweis=_ttm_hinweis(fd))
+    rendite = fcf_rendite(fd)
+    if rendite.rohwert is None:
+        e.grund = rendite.grund
+        return e
+    kandidaten = [(n, r.rohwert) for n, r in (("Umsatz", umsatz_cagr(fd)), ("FCF je Aktie", fcf_je_aktie_cagr(fd)))
+                  if r.rohwert is not None]
+    if not kandidaten:
+        e.grund = "kein Wachstum berechenbar"
+        return e
+    name, g = min(kandidaten, key=lambda x: x[1])      # vorsichtig: das niedrigere Wachstum
+    g_begrenzt = min(max(g, fd.wachstum_min), fd.wachstum_max)
+    e.rohwert = rendite.rohwert + g_begrenzt
+    e.quelle = rendite.quelle
+    e.datenstand = rendite.datenstand
+    e.details = (f"FCF-Rendite {prozent(rendite.rohwert, 2)} + Wachstum {prozent(g_begrenzt, 1)} "
+                 f"(niedrigerer Wert aus {', '.join(f'{n} {prozent(v)}' for n, v in kandidaten)}"
+                 + (f", begrenzt auf {zahl(fd.wachstum_min, 0)} bis {zahl(fd.wachstum_max, 0)} %" if g != g_begrenzt else "")
+                 + ")")
     return e
 
 
@@ -353,57 +487,70 @@ def _jahr_davor(fd: Finanzdaten, konzept: str, ende: date, jahre: int) -> Wert |
 
 def umsatz_cagr(fd: Finanzdaten, jahre: int = 5) -> Ergebnis:
     e = Ergebnis("umsatz_cagr")
-    enden = geschaeftsjahre(fd, "umsatz", 1)
-    if not enden:
+    liste = fd.jahre.get("umsatz") or []
+    if not liste:
         e.grund = "Umsatz nicht gefunden"
         return e
-    jetzt = jahreswert(fd, "umsatz", enden[-1])
-    frueher = _jahr_davor(fd, "umsatz", jetzt.ende, jahre)
-    if frueher is None:
-        e.grund = f"kein Umsatz von vor {jahre} Jahren gefunden"
+
+    def wert(d):
+        w = jahreswert(fd, "umsatz", d)
+        return w.wert / 1e9 if w else None
+
+    cagr, text, hinweis, grund = wachstum_geglaettet(fd, [w.ende for w in liste], wert, jahre)
+    if grund:
+        e.grund = grund
         return e
-    if frueher.wert <= 0 or jetzt.wert <= 0:
-        e.grund = "Umsatz nicht positiv – Wachstumsrate nicht sinnvoll"
-        return e
-    e.rohwert = ((jetzt.wert / frueher.wert) ** (1 / jahre) - 1) * 100
-    e.quelle = _quellen(jetzt, frueher)
-    e.datenstand = _iso(jetzt.ende)
-    e.details = (f"GJ {jetzt.ende:%m/%Y}: {betrag(jetzt.wert, fd.waehrung)}, "
-                 f"GJ {frueher.ende:%m/%Y}: {betrag(frueher.wert, fd.waehrung)}")
+    e.rohwert, e.hinweis = cagr, hinweis
+    e.quelle = _quellen(*liste[-8:])
+    e.datenstand = _iso(liste[-1].ende)
+    e.details = f"Umsatz in Mrd. {fd.waehrung}: {text}"
     return e
 
 
 def fcf_je_aktie_cagr(fd: Finanzdaten, jahre: int = 5) -> Ergebnis:
     e = Ergebnis("fcf_je_aktie_cagr")
-    enden = geschaeftsjahre(fd, "ocf", 1)
+    enden = [w.ende for w in fd.jahre.get("ocf", [])]
     if not enden:
         e.grund = "operativer Cashflow nicht gefunden"
         return e
-    ende_jetzt = enden[-1]
-    ziel = ende_jetzt - timedelta(days=round(365.25 * jahre))
-    ende_frueher = next((w.ende for w in fd.jahre.get("ocf", []) if _nahe(w.ende, ziel, 20)), None)
-    if ende_frueher is None:
-        e.grund = f"kein Cashflow von vor {jahre} Jahren gefunden"
-        return e
-    werte = {}
     quellen = []
-    for ende in (ende_frueher, ende_jetzt):
-        fcf, teile = _fcf_jahr(fd, ende)
-        aktien = jahreswert(fd, "aktien_verwaessert", ende)
+
+    def wert(d):
+        fcf, teile = _fcf_jahr(fd, d)
+        aktien = jahreswert(fd, "aktien_verwaessert", d)
         if fcf is None or aktien is None or aktien.wert <= 0:
-            e.grund = f"FCF oder verwässerte Aktienanzahl für GJ {ende:%m/%Y} fehlt"
-            return e
-        werte[ende] = fcf / aktien.wert
-        quellen += teile + [aktien]
-    alt, neu = werte[ende_frueher], werte[ende_jetzt]
-    if alt <= 0 or neu <= 0:
-        e.grund = f"FCF je Aktie nicht positiv ({zahl(alt, 2)} → {zahl(neu, 2)}) – Wachstumsrate nicht sinnvoll"
+            return None
+        quellen.extend(teile + [aktien])
+        return fcf / aktien.wert
+
+    cagr, text, hinweis, grund = wachstum_geglaettet(fd, enden, wert, jahre)
+    if grund:
+        e.grund = "FCF je Aktie: " + grund
         return e
-    e.rohwert = ((neu / alt) ** (1 / jahre) - 1) * 100
+    e.rohwert, e.hinweis = cagr, hinweis
     e.quelle = _quellen(*quellen)
-    e.datenstand = _iso(ende_jetzt)
-    e.details = (f"FCF je Aktie GJ {ende_jetzt:%m/%Y}: {zahl(neu, 2)} {fd.waehrung}, "
-                 f"GJ {ende_frueher:%m/%Y}: {zahl(alt, 2)} {fd.waehrung}")
+    e.datenstand = _iso(max(enden))
+    e.details = f"FCF je Aktie in {fd.waehrung}: {text}"
+    return e
+
+
+def aktien_verwaesserung(fd: Finanzdaten, jahre: int = 5) -> Ergebnis:
+    """Jährliche Veränderung der verwässerten Aktienanzahl (negativ = Rückkäufe, positiv = Verwässerung)."""
+    e = Ergebnis("aktien_verwaesserung")
+    liste = fd.jahre.get("aktien_verwaessert") or []
+    if not liste:
+        e.grund = "verwässerte Aktienanzahl nicht gefunden"
+        return e
+    jetzt = liste[-1]
+    frueher = _jahr_davor(fd, "aktien_verwaessert", jetzt.ende, jahre)
+    if frueher is None or frueher.wert <= 0:
+        e.grund = f"keine Aktienanzahl von vor {jahre} Jahren"
+        return e
+    e.rohwert = _cagr(frueher.wert, jetzt.wert, jahre)
+    e.quelle = _quellen(frueher, jetzt)
+    e.datenstand = _iso(jetzt.ende)
+    e.details = (f"GJ {frueher.ende:%Y}: {zahl(frueher.wert / 1e6, 1)} Mio. → "
+                 f"GJ {jetzt.ende:%Y}: {zahl(jetzt.wert / 1e6, 1)} Mio. Aktien (verwässert, splitbereinigt)")
     return e
 
 
@@ -443,32 +590,55 @@ def steuersatz(fd: Finanzdaten, ende: date) -> float:
     return min(max(st.wert / vor.wert, 0.0), STEUER_MAX)
 
 
+def investiertes_kapital(fd: Finanzdaten, datum: date) -> tuple[float | None, str]:
+    """Betrieblich gebundenes Kapital, berechnet über die Aktivseite.
+
+    = Bilanzsumme – Cash – Wertpapiere (kurz- und langfristig)
+      – nicht zinstragende kurzfristige Verbindlichkeiten
+    Funktioniert auch bei negativem Eigenkapital (z. B. nach hohen Aktienrückkäufen).
+    Fehlen die kurzfristigen Verbindlichkeiten (Banken), ersatzweise Eigenkapital + Schulden – Cash.
+    """
+    ta = bilanzwert(fd, "bilanzsumme", datum)
+    kv = bilanzwert(fd, "kurzfr_verbindlichkeiten", datum)
+    cash, _ = liquide_mittel(fd, datum)
+    if ta is not None and kv is not None and cash is not None:
+        lw = bilanzwert(fd, "langfr_wertpapiere", datum)
+        teile = schulden_teile(fd, datum)
+        kurz_schulden = teile[1] if teile else 0.0
+        return ta.wert - cash - (lw.wert if lw else 0.0) - (kv.wert - kurz_schulden), "Aktivseite"
+    ek = bilanzwert(fd, "eigenkapital", datum)
+    if ek is not None and cash is not None:
+        return ek.wert + finanzschulden(fd, datum)[0] - cash, "Eigenkapital + Schulden – Cash"
+    return None, ""
+
+
 def roic(fd: Finanzdaten, jahre: int = 5) -> Ergebnis:
     e = Ergebnis("roic")
-    werte, quellen, texte = [], [], []
+    werte, quellen, texte, methoden = [], [], [], set()
     for ende in geschaeftsjahre(fd, "ebit", jahre):
         ebit = jahreswert(fd, "ebit", ende)
-        ek = bilanzwert(fd, "eigenkapital", ende)
-        cash, _ = liquide_mittel(fd, ende)
-        if ebit is None or ek is None or cash is None:
+        kapital, methode = investiertes_kapital(fd, ende)
+        if ebit is None or kapital is None:
             continue
-        schulden, _ = finanzschulden(fd, ende)
-        kapital = ek.wert + schulden - cash
+        vorjahr, _ = investiertes_kapital(fd, ende - timedelta(days=365))
+        if vorjahr is not None and vorjahr > 0:
+            kapital = (kapital + vorjahr) / 2          # Durchschnitt aus Jahresanfang und -ende
         if kapital <= 0:
             texte.append(f"GJ {ende:%Y}: investiertes Kapital ≤ 0, übersprungen")
             continue
         t = steuersatz(fd, ende)
         r = ebit.wert * (1 - t) / kapital * 100
         werte.append(r)
-        quellen += [ebit, ek]
+        methoden.add(methode)
+        quellen.append(ebit)
         texte.append(f"GJ {ende:%Y}: {prozent(r)} (Steuersatz {prozent(t * 100, 0)})")
     if len(werte) < 3:
         e.grund = f"nur {len(werte)} Jahre berechenbar (mindestens 3 nötig)"
         e.details = ", ".join(texte)
         return e
     e.rohwert = sum(werte) / len(werte)
-    e.quelle = _quellen(*quellen) + "; Finanzschulden und Cash aus der Bilanz"
-    e.datenstand = _iso(quellen[-2].ende)
+    e.quelle = _quellen(*quellen) + "; investiertes Kapital aus der Bilanz (" + ", ".join(sorted(methoden)) + ")"
+    e.datenstand = _iso(quellen[-1].ende)
     e.details = ", ".join(texte)
     if len(werte) < jahre:
         e.hinweis = f"Durchschnitt aus {len(werte)} Jahren"
@@ -594,21 +764,37 @@ def zinsdeckung(fd: Finanzdaten) -> Ergebnis:
     return e
 
 
-def current_ratio(fd: Finanzdaten) -> Ergebnis:
-    e = Ergebnis("current_ratio")
+def entschuldungsdauer(fd: Finanzdaten) -> Ergebnis:
+    """Jahre, die der Free Cashflow bräuchte, um die Nettoschulden zu tilgen."""
+    e = Ergebnis("entschuldungsdauer", hinweis=_ttm_hinweis(fd))
     tag = stichtag(fd)
-    uv = bilanzwert(fd, "umlaufvermoegen", tag) if tag else None
-    kv = bilanzwert(fd, "kurzfr_verbindlichkeiten", tag) if tag else None
-    if uv is None or kv is None:
-        e.grund = "Umlaufvermögen oder kurzfristige Verbindlichkeiten nicht ausgewiesen (z. B. bei Banken üblich)"
+    if tag is None:
+        e.grund = "Bilanz nicht gefunden"
         return e
-    if kv.wert <= 0:
-        e.grund = "kurzfristige Verbindlichkeiten ≤ 0"
+    cash, cash_quelle = liquide_mittel(fd, tag)
+    if cash is None:
+        e.grund = "Cash nicht gefunden"
         return e
-    e.rohwert = uv.wert / kv.wert
-    e.quelle = _quellen(uv, kv)
+    schulden, schulden_quelle = finanzschulden(fd, tag)
+    netto = schulden - cash
+    fcf, teile, text = fcf_ttm(fd)
+    e.quelle = "; ".join(x for x in (schulden_quelle, cash_quelle, _quellen(*teile)) if x)
     e.datenstand = _iso(tag)
-    e.details = f"Umlaufvermögen {betrag(uv.wert, fd.waehrung)} ÷ kurzfr. Verbindlichkeiten {betrag(kv.wert, fd.waehrung)}"
+    if netto <= 0:
+        e.fixpunkte = 10.0
+        e.rohwert = 0.0
+        e.details = f"Nettocash {betrag(-netto, fd.waehrung)}"
+        e.hinweis = "; ".join(x for x in (e.hinweis, "Nettocash → 10 Punkte") if x)
+        return e
+    if fcf is None:
+        e.grund = text
+        return e
+    e.details = f"Nettoschulden {betrag(netto, fd.waehrung)} ÷ FCF {betrag(fcf, fd.waehrung)} ({text})"
+    if fcf <= 0:
+        e.fixpunkte = 0.0
+        e.hinweis = "; ".join(x for x in (e.hinweis, "negativer Free Cashflow bei Nettoschulden → 0 Punkte") if x)
+        return e
+    e.rohwert = netto / fcf
     return e
 
 
@@ -654,10 +840,10 @@ def altman_z(fd: Finanzdaten) -> Ergebnis:
 
 
 ALLE = [
-    fcf_rendite, ev_ebit_historie, ausschuettungsrendite, max_kursrueckgang,
+    fcf_rendite, fcf_rendite_historie, ev_ebit_historie, ausschuettungsrendite, max_kursrueckgang, erwartete_rendite,
     umsatz_cagr, fcf_je_aktie_cagr, umsatz_bestaendigkeit,
-    roic, bruttomarge_stabilitaet, fcf_umwandlung,
-    nettoverschuldung_ebitda, zinsdeckung, current_ratio, altman_z,
+    roic, bruttomarge_stabilitaet, fcf_umwandlung, aktien_verwaesserung,
+    nettoverschuldung_ebitda, zinsdeckung, entschuldungsdauer, altman_z,
 ]
 
 
