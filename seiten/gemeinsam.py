@@ -11,6 +11,7 @@ SEITE_IMPORT = "seiten/import_seite.py"
 SEITE_DETAIL = "seiten/detail.py"
 SEITE_KATEGORIE = "seiten/kategorie.py"
 SEITE_EINSTELLUNGEN = "seiten/einstellungen.py"
+SEITE_SEKTOREN = "seiten/sektoren.py"
 
 
 @st.cache_resource

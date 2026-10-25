@@ -61,6 +61,7 @@ Datei (`aktien.db`) auf deinem Laptop speichert.
 | **Import** | Einen Ticker eingeben, oder eine CSV-Datei mit einer Spalte `Ticker` hochladen. |
 | **Detailansicht** | Bei neuen Titeln zuerst deine Einschätzung (4 Regler, 1 Satz Begründung, „Ich liege falsch, wenn …“). Danach Netzdiagramm, Beiträge, alle Kennzahlen mit Rohwert, Punkten, Rechenweg, Quelle und Datenstand, Verlauf. Sektor hier von Hand ändern. |
 | **Kategorieansicht** | Alle Titel nach einer Kategorie sortiert, mit den Rohwerten. |
+| **Sektoren & Zyklus** | Zyklusuhr aller 11 Sektoren, Sektorfaktor je Sektor, jeder Makro-Indikator mit Ampel und Richtung, Sektor-KGV-Historie. Knopf „Makrodaten aktualisieren“ (ca. 1 Minute, am besten wöchentlich). |
 | **Einstellungen** | Gewichte (Regler), Kategorien an/aus, Standard wiederherstellen, Schwellen ansehen, E-Mail. |
 
 Eine erneute Analyse legt immer einen **neuen** Eintrag an. Ältere bleiben für den Verlauf erhalten.
@@ -149,6 +150,17 @@ Die Sektor-Zuordnung steht in `config/sic_sektoren.yaml`.
 - **Sonderfälle:** Nettocash → 10 Punkte (Nettoverschuldung/EBITDA, Entschuldungsdauer);
   Nettoschulden bei negativem FCF → 0 Punkte (Entschuldungsdauer); kein Zinsaufwand ausgewiesen →
   10 Punkte nur ohne Finanzschulden, sonst wird die Zinsdeckung ausgelassen.
+- **Sektorfaktor (Makro, antizyklisch):** jeder Sektor startet bei 1,0. Rund 25 Indikatoren von FRED
+  (Zinsen, Zinskurve, Kreditaufschläge, Konjunktur, Rohstoffe, Konsum, Housing …) werden je Sektor
+  ausgewertet: **Niveau** (über/unter dem 10-Jahres-Schnitt) und **Richtung** (letzte 6 Monate).
+  Daraus folgt die Phase: Erholung 1,25 · Abschwung 1,05 · Aufschwung 0,90 · Boom/Wende 0,75 · Neutral 1,00.
+  Dazu ±0,10 für die Bewertung des Sektors (Damodaran-KGV vs. eigene Historie, ETF-Kurs vs. 10-Jahres-Trend).
+  Begrenzt auf 0,7–1,3. **Gesamtscore = Score ohne Makro × Sektorfaktor** (höchstens 100); der Score
+  ohne Makro steht immer daneben. Indikatoren, die älter als 6 Monate sind, werden nicht verwendet.
+  Alle Regeln, Gewichte und Phasen-Faktoren: `config/makro.yaml`. Ausschalten: `aktiv: false`.
+- **Branchenwerte im DCF:** Zuschlag = (Sektor-Beta – 1) × Marktrisikoprämie, Exit-Multiple = Median des
+  Sektor-KGV der letzten ~10 Jahre (beides Damodaran, begrenzt). Umschaltbar in `config/dcf.yaml`.
+  Branchen-Zuordnung: `config/damodaran_branchen.yaml`.
 - **K.o.-Warnung:** liegt eine eingeschaltete Kategorie unter 3 von 10 Punkten (einstellbar), erscheint
   „⛔ K.o.“. Der Gesamtscore ändert sich dadurch nicht – die Warnung soll verhindern, dass eine
   gravierende Schwäche im Durchschnitt untergeht.
@@ -157,7 +169,8 @@ Die Sektor-Zuordnung steht in `config/sic_sektoren.yaml`.
 - **Gesamtscore:** wird bei jeder Anzeige aus gespeicherten Rohwerten, aktuellen Schwellen
   und aktuellen Gewichten berechnet. Im Verlauf gilt für jede Analyse die Einschätzung,
   die bis zur nächsten Analyse aktuell war.
-- **Datenquellen:** FRED (Federal Reserve Bank of St. Louis) für den risikofreien Zins; ist FRED nicht
+- **Datenquellen:** FRED (Federal Reserve Bank of St. Louis) für den risikofreien Zins und die Makro-Indikatoren;
+  Prof. A. Damodaran (NYU Stern) für Branchen-KGV und -Beta; Yahoo Finance für die Sektor-ETFs; ist FRED nicht
   erreichbar, nimmt die App den Ersatzwert aus `config/dcf.yaml` und zeigt einen Hinweis.
   SEC EDGAR (companyfacts, submissions), max. 8 Anfragen/Sekunde,
   1 Tag Zwischenspeicher im Ordner `cache/`. Kurse: yfinance (Yahoo Finance) –

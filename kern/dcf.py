@@ -13,6 +13,7 @@ Alle Werte in Prozent werden als Prozentzahl übergeben (4.5 = 4,5 %).
 """
 from __future__ import annotations
 
+import statistics
 from dataclasses import asdict, dataclass, field
 
 from kern.format import betrag, prozent, zahl
@@ -119,6 +120,34 @@ def _je_aktie(wert: float, e: DcfEingaben) -> float:
 
 def abzinsungssatz(e: DcfEingaben, cfg: dict, branche: dict) -> float:
     return float(e.zins) + float(cfg["marktrisikopraemie"]) + float(branche.get("zuschlag", 0.0))
+
+
+def mit_damodaran(cfg: dict, sektoren: dict | None) -> dict:
+    """Branchenwerte aus Damodaran-Daten übernehmen (falls eingestellt und vorhanden).
+
+    ``sektoren`` = gespeicherte Sektordaten {Sektor: {"beta": .., "kgv": .., "kgv_historie": {Jahr: KGV}}}.
+    Fehlende Werte bleiben aus der Tabelle in dcf.yaml.
+    """
+    if cfg.get("branchenwerte", "tabelle") != "damodaran" or not sektoren:
+        return cfg
+    g = cfg.get("damodaran_grenzen", {})
+    erp = float(cfg["marktrisikopraemie"])
+    branchen = {k: dict(v) for k, v in cfg.get("branchen", {}).items()}
+    for sektor, d in sektoren.items():
+        eintrag = branchen.setdefault(sektor, dict(branchen.get("unbekannt", {})))
+        teile = []
+        if d.get("beta") is not None:
+            z = (float(d["beta"]) - 1) * erp
+            eintrag["zuschlag"] = min(max(z, float(g.get("zuschlag_min", -1.5))), float(g.get("zuschlag_max", 2.5)))
+            teile.append(f"Beta {zahl(d['beta'], 2)}")
+        kgvs = [v for v in list((d.get("kgv_historie") or {}).values()) + [d.get("kgv")] if v and v > 0]
+        if len(kgvs) >= 3:
+            median = statistics.median(kgvs)
+            eintrag["exit_multiple"] = min(max(median, float(g.get("multiple_min", 8))), float(g.get("multiple_max", 25)))
+            teile.append(f"Median-KGV {zahl(median, 1)} aus {len(kgvs)} Jahren")
+        if teile:
+            eintrag["quelle"] = "Damodaran: " + ", ".join(teile)
+    return {**cfg, "branchen": branchen}
 
 
 def branchenwerte(cfg: dict, sektor: str | None) -> tuple[str, dict]:

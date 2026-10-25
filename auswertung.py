@@ -24,6 +24,38 @@ def gewichte_und_aktiv(con, schwellen: dict) -> tuple[dict[str, float], dict[str
     return gewichte, aktiv
 
 
+def dcf_konfig(con) -> dict:
+    """dcf.yaml, ergänzt um die Damodaran-Branchenwerte (falls eingestellt und schon geladen)."""
+    gespeichert = db.einstellung(con, "sektorfaktoren")
+    return dcf_modell.mit_damodaran(lade_dcf(), (gespeichert or {}).get("sektoren"))
+
+
+def makro_stand(con) -> tuple[dict | None, bool]:
+    """(gespeicherte Sektorfaktoren, Multiplikator aktiv?)."""
+    import yaml
+    from kern.konfig import CONFIG
+
+    try:
+        with open(CONFIG / "makro.yaml", encoding="utf-8") as f:
+            aktiv = bool(yaml.safe_load(f).get("aktiv", True))
+    except FileNotFoundError:
+        aktiv = False
+    return db.einstellung(con, "sektorfaktoren"), aktiv
+
+
+def sektorfaktor(makro: dict | None, sektor: str | None) -> dict | None:
+    if not makro or not sektor:
+        return None
+    return makro.get("sektoren", {}).get(sektor)
+
+
+def mit_makro(score: float | None, faktor: dict | None, aktiv: bool) -> float | None:
+    """Gesamtscore × Sektorfaktor, höchstens 100. Ohne Faktor oder ausgeschaltet: unverändert."""
+    if score is None or not faktor or not aktiv:
+        return score
+    return min(100.0, score * float(faktor["faktor"]))
+
+
 def dcf_berechnen(analyse: dict, titel: dict, manuell: dict | None, schwellen: dict, dcf_cfg: dict):
     """DCF-Bewertung einer gespeicherten Analyse mit den aktuellen Einstellungen.
 
@@ -122,7 +154,8 @@ def uebersicht(con) -> pd.DataFrame:
     for e in db.einschaetzungen_alle(con):
         einsch[e["ticker"]].append(e)
     analysen = {r["id"]: dict(r) for r in con.execute("SELECT id, zeitpunkt, dcf FROM analysen")}
-    manuell, dcf_cfg = db.dcf_manuell_alle(con), lade_dcf()
+    manuell, dcf_cfg = db.dcf_manuell_alle(con), dcf_konfig(con)
+    makro, makro_aktiv = makro_stand(con)
 
     zeilen = []
     for t in db.titel_alle(con):
@@ -132,9 +165,13 @@ def uebersicht(con) -> pd.DataFrame:
         e = einsch[t["ticker"]][-1] if einsch[t["ticker"]] else None
         kz = mit_dcf(alle_zeilen[aid], analysen[aid], t, manuell.get(t["ticker"]), schwellen, dcf_cfg)
         scores, g = bewertung(kz, e, schwellen, gewichte, aktiv)
+        f = sektorfaktor(makro, db.sektor(t))
+        score_makro = mit_makro(g.score, f, makro_aktiv)
         zeilen.append({
             "Name": t["name"], "Ticker": t["ticker"], "Sektor": db.sektor(t),
-            "Gesamtscore": None if g.score is None else round(g.score, 1),
+            "Gesamtscore": None if score_makro is None else round(score_makro, 1),
+            "ohne Makro": None if g.score is None else round(g.score, 1),
+            "Sektorfaktor": None if not f else round(float(f["faktor"]), 2),
             **{schwellen["kategorien"][k]["kurz"]: None if scores[k] is None else round(scores[k], 1) for k in KATEGORIEN},
             "Hinweis": markierung(g, schwellen),
             "Letzte Analyse": analysen[aid]["zeitpunkt"][:16].replace("T", " "),
@@ -171,7 +208,7 @@ def verlauf(con, ticker: str) -> pd.DataFrame:
     zeilen = defaultdict(list)
     for z in db.kennzahlen_fuer(con, [a["id"] for a in analysen]):
         zeilen[z["analyse_id"]].append(z)
-    titel, manuell, dcf_cfg = db.titel(con, ticker), db.dcf_manuell(con, ticker), lade_dcf()
+    titel, manuell, dcf_cfg = db.titel(con, ticker), db.dcf_manuell(con, ticker), dcf_konfig(con)
     daten = []
     for a, e in zip(analysen, einsch):
         kz = mit_dcf(zeilen[a["id"]], a, titel, manuell, schwellen, dcf_cfg)
@@ -194,7 +231,8 @@ def kategorie_ansicht(con, kategorie: str) -> pd.DataFrame:
         einsch[e["ticker"]].append(e)
     namen = {s: k["name"] for s, k in schwellen["kennzahlen"].items() if k["kategorie"] == kategorie}
     analysen = {r["id"]: dict(r) for r in con.execute("SELECT id, zeitpunkt, dcf FROM analysen")}
-    manuell, dcf_cfg = db.dcf_manuell_alle(con), lade_dcf()
+    manuell, dcf_cfg = db.dcf_manuell_alle(con), dcf_konfig(con)
+    makro, makro_aktiv = makro_stand(con)
     einheiten = {s: k["einheit"] for s, k in schwellen["kennzahlen"].items()}
 
     daten = []
@@ -217,7 +255,10 @@ def kategorie_ansicht(con, kategorie: str) -> pd.DataFrame:
             for s, n in namen.items():
                 einheit = f" [{einheiten[s]}]" if einheiten[s] else ""
                 zeile[n + einheit] = None if roh.get(s) is None else round(roh[s], 2)
-        zeile["Gesamtscore"] = None if g.score is None else round(g.score, 1)
+        f = sektorfaktor(makro, db.sektor(t))
+        score_makro = mit_makro(g.score, f, makro_aktiv)
+        zeile["Gesamtscore"] = None if score_makro is None else round(score_makro, 1)
+        zeile["ohne Makro"] = None if g.score is None else round(g.score, 1)
         zeile["Hinweis"] = markierung(g, schwellen)
         daten.append(zeile)
     df = pd.DataFrame(daten)

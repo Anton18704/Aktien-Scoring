@@ -31,7 +31,11 @@ df = df.sort_values("Gesamtscore", ascending=False, na_position="last").reset_in
 
 kurz = {k: s["kategorien"][k]["kurz"] for k in KATEGORIEN}
 spalten = {
-    "Gesamtscore": st.column_config.ProgressColumn("Gesamtscore", min_value=0, max_value=100, format="%.1f"),
+    "Gesamtscore": st.column_config.ProgressColumn("Gesamtscore", min_value=0, max_value=100, format="%.1f",
+                                                   help="mit Sektorfaktor (Makro), höchstens 100"),
+    "ohne Makro": st.column_config.NumberColumn("ohne Makro", format="%.1f", help="Gesamtscore ohne Sektorfaktor"),
+    "Sektorfaktor": st.column_config.NumberColumn("Faktor", format="%.2f",
+                                                  help="Sektorfaktor aus der Zyklusuhr (Seite Sektoren & Zyklus)"),
     **{kurz[k]: st.column_config.NumberColumn(f"{k} {kurz[k]}", format="%.1f", help=s["kategorien"][k]["name"] + " (0–10)")
        for k in KATEGORIEN},
     "Hinweis": st.column_config.TextColumn("Hinweis", width="medium"),

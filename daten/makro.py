@@ -14,22 +14,42 @@ CACHE = PROJEKT / "cache"
 CACHE_GUELTIG = 12 * 3600
 
 
-def fred_reihe(reihe: str) -> tuple[float, date]:
-    """Letzter verfügbarer Wert einer FRED-Zeitreihe, z. B. DGS10 (10-jährige US-Staatsanleihe)."""
+def _fred_text(reihe: str) -> str:
     CACHE.mkdir(exist_ok=True)
     datei = CACHE / f"fred_{reihe}.csv"
     if datei.exists() and time.time() - datei.stat().st_mtime < CACHE_GUELTIG:
-        text = datei.read_text(encoding="utf-8")
-    else:
+        return datei.read_text(encoding="utf-8")
+    try:
         antwort = requests.get("https://fred.stlouisfed.org/graph/fredgraph.csv", params={"id": reihe}, timeout=20)
         antwort.raise_for_status()
-        text = antwort.text
-        datei.write_text(text, encoding="utf-8")
-    zeilen = list(csv.reader(io.StringIO(text)))[1:]
-    for datum, wert in reversed(zeilen):
-        if wert not in ("", "."):
-            return float(wert), date.fromisoformat(datum)
-    raise ValueError(f"FRED-Reihe {reihe} enthält keine Werte.")
+    except requests.RequestException:
+        if datei.exists():          # lieber ältere Daten als gar keine
+            return datei.read_text(encoding="utf-8")
+        raise
+    datei.write_text(antwort.text, encoding="utf-8")
+    return antwort.text
+
+
+def fred_historie(reihe: str):
+    """Ganze FRED-Zeitreihe als pandas.Series (Index = Datum)."""
+    import pandas as pd
+
+    daten = {}
+    for zeile in list(csv.reader(io.StringIO(_fred_text(reihe))))[1:]:
+        if len(zeile) >= 2 and zeile[1] not in ("", "."):
+            try:
+                daten[pd.Timestamp(zeile[0])] = float(zeile[1])
+            except ValueError:
+                continue
+    if not daten:
+        raise ValueError(f"FRED-Reihe {reihe} enthält keine Werte.")
+    return pd.Series(daten).sort_index()
+
+
+def fred_reihe(reihe: str) -> tuple[float, date]:
+    """Letzter verfügbarer Wert einer FRED-Zeitreihe, z. B. DGS10 (10-jährige US-Staatsanleihe)."""
+    s = fred_historie(reihe)
+    return float(s.iloc[-1]), s.index[-1].date()
 
 
 def risikofreier_zins(cfg: dict) -> tuple[float, str, str, str | None]:

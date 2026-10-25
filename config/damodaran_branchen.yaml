@@ -1,0 +1,117 @@
+# =====================================================================
+#  Zuordnung der Damodaran-Branchen (NYU Stern) zu den 11 Sektoren
+# =====================================================================
+#  Quelle: https://pages.stern.nyu.edu/~adamodar/New_Home_Page/datacurrent.html
+#  Genutzt werden:
+#    - KGV je Branche (aggregiert: Marktkapitalisierung ÷ Gewinn), aktuell und Archiv
+#    - Beta je Branche (Durchschnitt der letzten 5 Jahre)
+#  Pro Sektor wird der Median der zugehörigen Branchen gebildet.
+#  Branchen, die hier fehlen, werden ignoriert.
+# =====================================================================
+
+IT:
+  - Computer Services
+  - Computers/Peripherals
+  - Electronics (General)
+  - Semiconductor
+  - Semiconductor Equip
+  - Software (System & Application)
+  - Telecom. Equipment
+Kommunikation:
+  - Advertising
+  - Broadcasting
+  - Cable TV
+  - Entertainment
+  - Publishing & Newspapers
+  - Software (Entertainment)
+  - Software (Internet)
+  - Telecom (Wireless)
+  - Telecom. Services
+Zyklischer Konsum:
+  - Apparel
+  - Auto & Truck
+  - Auto Parts
+  - Education
+  - Electronics (Consumer & Office)
+  - Furn/Home Furnishings
+  - Homebuilding
+  - Hotel/Gaming
+  - Recreation
+  - Restaurant/Dining
+  - Retail (Automotive)
+  - Retail (Building Supply)
+  - Retail (General)
+  - Retail (Special Lines)
+  - Rubber& Tires
+  - Shoe
+Basiskonsum:
+  - Beverage (Alcoholic)
+  - Beverage (Soft)
+  - Farming/Agriculture
+  - Food Processing
+  - Food Wholesalers
+  - Household Products
+  - Retail (Grocery and Food)
+  - Tobacco
+Gesundheit:
+  - Drugs (Biotechnology)
+  - Drugs (Pharmaceutical)
+  - Healthcare Products
+  - Healthcare Support Services
+  - Heathcare Information and Technology
+  - Healthcare Information and Technology
+  - Hospitals/Healthcare Facilities
+Finanzwerte:
+  - Bank (Money Center)
+  - Banks (Regional)
+  - Brokerage & Investment Banking
+  - Financial Svcs. (Non-bank & Insurance)
+  - Insurance (General)
+  - Insurance (Life)
+  - Insurance (Prop/Cas.)
+  - Investments & Asset Management
+  - Reinsurance
+Industrie:
+  - Aerospace/Defense
+  - Air Transport
+  - Business & Consumer Services
+  - Diversified
+  - Electrical Equipment
+  - Engineering/Construction
+  - Environmental & Waste Services
+  - Information Services
+  - Machinery
+  - Office Equipment & Services
+  - Retail (Distributors)
+  - Shipbuilding & Marine
+  - Transportation
+  - Transportation (Railroads)
+  - Trucking
+Grundstoffe:
+  - Building Materials
+  - Chemical (Basic)
+  - Chemical (Diversified)
+  - Chemical (Specialty)
+  - Construction Supplies
+  - Metals & Mining
+  - Packaging & Container
+  - Paper/Forest Products
+  - Precious Metals
+  - Steel
+Energie:
+  - Coal & Related Energy
+  - Green & Renewable Energy
+  - Oil/Gas (Integrated)
+  - Oil/Gas (Production and Exploration)
+  - Oil/Gas Distribution
+  - Oilfield Svcs/Equip.
+Versorger:
+  - Power
+  - Utility (General)
+  - Utility (Water)
+Immobilien:
+  - R.E.I.T.
+  - Real Estate (Development)
+  - Real Estate (General/Diversified)
+  - Real Estate (Operations & Services)
+  - Retail (REITs)

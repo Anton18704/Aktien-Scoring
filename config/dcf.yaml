@@ -77,7 +77,22 @@ szenarien:
     start_fcf: ttm
 
 # ---------------------------------------------------------------------
-#  Branchen-Multiplikatoren
+#  Woher kommen die Branchenwerte?
+#   damodaran: aus den Branchendaten von Prof. Damodaran (NYU), geladen auf der Seite "Sektoren"
+#              zuschlag      = (Sektor-Beta – 1) × Marktrisikoprämie
+#              exit_multiple = Median des Sektor-KGV der letzten ~10 Jahre
+#              Fehlen die Daten, gilt automatisch die Tabelle unten.
+#   tabelle:   immer die Tabelle unten
+# ---------------------------------------------------------------------
+branchenwerte: damodaran
+damodaran_grenzen:
+  zuschlag_min: -1.5
+  zuschlag_max: 2.5
+  multiple_min: 8
+  multiple_max: 25
+
+# ---------------------------------------------------------------------
+#  Branchen-Multiplikatoren (Tabelle / Ersatzwerte)
 # ---------------------------------------------------------------------
 #  zuschlag:       Auf-/Abschlag auf den Abzinsungssatz (Prozentpunkte).
 #                  Höher = riskanter/zyklischer, niedriger = stabiler.

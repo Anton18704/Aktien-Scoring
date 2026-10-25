@@ -103,7 +103,7 @@ analyse = next(a for a in analysen if a["id"] == analyse_id)
 gueltige_e = dict(zip([a["id"] for a in analysen], auswertung.einschaetzung_fuer_analysen(analysen, einschaetzungen)))
 e = gueltige_e[analyse_id]
 try:
-    dcf_cfg = lade_dcf()
+    dcf_cfg = auswertung.dcf_konfig(con)
 except KonfigFehler as ex:
     st.error(f"Fehler in config/dcf.yaml: {ex}")
     st.stop()
@@ -116,8 +116,23 @@ scores, gesamt = auswertung.bewertung(zeilen, e, s, gewichte, aktiv)
 for h in json.loads(analyse["hinweise"] or "[]"):
     st.info(h)
 
-m1, m2 = st.columns([1, 3])
-m1.metric("Gesamtscore", "–" if gesamt.score is None else zahl(gesamt.score, 1) + " / 100")
+makro, makro_aktiv = auswertung.makro_stand(con)
+faktor = auswertung.sektorfaktor(makro, db.sektor(t))
+score_makro = auswertung.mit_makro(gesamt.score, faktor, makro_aktiv)
+m0, m1, m2 = st.columns([1, 1, 2])
+m0.metric("Gesamtscore mit Makro" if faktor and makro_aktiv else "Gesamtscore",
+          "–" if score_makro is None else zahl(score_makro, 1) + " / 100")
+if faktor:
+    from makro_sektoren import lade_makro_cfg
+    phase = lade_makro_cfg()["phasen"][faktor["phase"]]["name"]
+    m1.metric("ohne Makro", "–" if gesamt.score is None else zahl(gesamt.score, 1),
+              help=f"Sektorfaktor {db.sektor(t)}: {faktor.get('text', '')}"
+                   + ("" if makro_aktiv else " (Multiplikator in config/makro.yaml ausgeschaltet)"))
+    m1.caption(f"Sektor {db.sektor(t)}: Faktor **{zahl(faktor['faktor'], 2)}** · Phase **{phase}**")
+    m1.page_link(g.SEITE_SEKTOREN, label="Zur Zyklusuhr", icon="🧭")
+else:
+    m1.caption("Noch keine Sektorfaktoren – auf der Seite „Sektoren“ die Makrodaten laden.")
+    m1.page_link(g.SEITE_SEKTOREN, label="Zu den Sektoren", icon="🧭")
 markierung = auswertung.markierung(gesamt, s)
 if gesamt.ko:
     m2.error(f"{markierung}\n\nMindestens eine Kategorie liegt unter {zahl(s['optionen']['ko_schwelle'], 1)} Punkten. "
@@ -283,7 +298,7 @@ for k in KATEGORIEN:
                                         "Rechenweg": st.column_config.TextColumn(width="large")})
 
 # ------------------------------------------------------------ Verlauf
-st.subheader("Verlauf des Gesamtscores")
+st.subheader("Verlauf des Gesamtscores (ohne Makro)")
 v = auswertung.verlauf(con, ticker)
 if len(v) < 2:
     st.caption("Der Verlauf erscheint ab der zweiten Analyse dieses Titels.")

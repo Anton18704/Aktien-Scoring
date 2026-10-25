@@ -12,6 +12,7 @@ seiten = [
     st.Page("seiten/import_seite.py", title="Import", icon="➕"),
     st.Page("seiten/detail.py", title="Detailansicht", icon="🔍"),
     st.Page("seiten/kategorie.py", title="Kategorieansicht", icon="🏷️"),
+    st.Page("seiten/sektoren.py", title="Sektoren & Zyklus", icon="🧭"),
     st.Page("seiten/einstellungen.py", title="Einstellungen", icon="⚙️"),
 ]
 st.navigation(seiten).run()
