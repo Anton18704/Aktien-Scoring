@@ -27,12 +27,7 @@ if not titel_liste:
     st.page_link(g.SEITE_IMPORT, label="Zum Import", icon="➕")
     st.stop()
 
-tickers = [t["ticker"] for t in titel_liste]
-start = st.session_state.get("ticker") or st.query_params.get("ticker")
-index = tickers.index(start) if start in tickers else 0
-namen = {t["ticker"]: f"{t['name']} ({t['ticker']})" for t in titel_liste}
-ticker = st.selectbox("Titel", tickers, index=index, format_func=namen.get)
-st.session_state["ticker"] = ticker
+ticker = g.titel_wahl(titel_liste, "detail_titel")
 st.query_params["ticker"] = ticker
 t = db.titel(con, ticker)
 
@@ -109,7 +104,8 @@ except KonfigFehler as ex:
     st.stop()
 manuell = db.dcf_manuell(con, ticker)
 dcf_erg, dcf_ein = auswertung.dcf_berechnen(analyse, t, manuell, s, dcf_cfg)
-zeilen = auswertung.mit_dcf(db.kennzahlen_fuer(con, [analyse_id]), analyse, t, manuell, s, dcf_cfg)
+eigenes_modell = db.dcf_modell(con, ticker)
+zeilen = auswertung.mit_dcf(db.kennzahlen_fuer(con, [analyse_id]), analyse, t, manuell, s, dcf_cfg, eigenes_modell)
 gewichte, aktiv = auswertung.gewichte_und_aktiv(con, s)
 scores, gesamt = auswertung.bewertung(zeilen, e, s, gewichte, aktiv)
 
@@ -163,6 +159,15 @@ with d2:
 
 # ------------------------------------------------------------ DCF-Bewertung
 st.subheader("DCF-Bewertung (Bear / Base / Bull)")
+if eigenes_modell and eigenes_modell["im_score"]:
+    z = next(x for x in zeilen if x["schluessel"] == "dcf_sicherheitsmarge")
+    if z["hinweis"].startswith("eigenes DCF-Modell"):
+        st.info(f"📐 Für den Score zählt dein **{z['hinweis']}** (Sicherheitsmarge "
+                f"{prozent(z['rohwert']) if z['rohwert'] is not None else '–'}), nicht das automatische DCF unten.")
+    else:
+        st.warning("📐 Dein eigenes DCF-Modell braucht Daten aus einer neueren Analyse – bis dahin zählt das "
+                   "automatische DCF. Bitte „Neu analysieren“.")
+st.page_link(g.SEITE_DCF, label="Eigenes DCF-Modell öffnen (Annahmen, Free-Cashflow-Rechnung, Abzinsung)", icon="📐")
 if dcf_erg is None:
     st.info("Diese Analyse stammt aus der Zeit vor dem DCF-Modell. Bitte oben auf „Neu analysieren“ tippen.")
 elif dcf_erg.grund:

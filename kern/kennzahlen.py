@@ -409,6 +409,52 @@ def dcf_eingaben(fd: Finanzdaten):
     return e
 
 
+def modell_basis(fd: Finanzdaten):
+    """Eingangswerte für das eigene DCF-Modell (kern/dcf_modell.py)."""
+    from kern.dcf_modell import ModellBasis
+
+    b = ModellBasis(waehrung=fd.waehrung)
+    mk, grund, mk_quelle = marktkapitalisierung(fd)
+    if mk is None:
+        b.grund = grund
+        return b
+    b.aktien, b.kurs = fd.aktien_aktuell.wert, fd.kurs_aktuell.wert
+    ttm = {k: _ttm(fd, k) for k in ("umsatz", "ebit", "abschreibungen", "capex", "zinsaufwand")}
+    if ttm["umsatz"] is None:
+        b.grund = "Umsatz nicht gefunden"
+        return b
+    b.umsatz = ttm["umsatz"].wert
+    b.ebit, b.abschreibungen, b.capex, b.zinsaufwand = (
+        None if ttm[k] is None else ttm[k].wert for k in ("ebit", "abschreibungen", "capex", "zinsaufwand"))
+    enden = geschaeftsjahre(fd, "umsatz", 6)
+    for ende in enden:
+        jahr = {"jahr": ende.year, "ende": _iso(ende)}
+        for k in ("umsatz", "ebit", "abschreibungen", "capex"):
+            w = jahreswert(fd, k, ende)
+            jahr[k] = None if w is None else w.wert
+        b.historie.append(jahr)
+    if enden:
+        b.steuersatz = steuersatz(fd, enden[-1]) * 100
+    tag = stichtag(fd)
+    teile = [w for w in ttm.values() if w is not None]
+    if tag is not None:
+        cash, cash_quelle = liquide_mittel(fd, tag)
+        b.cash = cash or 0.0
+        b.schulden, schulden_quelle = finanzschulden(fd, tag)
+        lw = bilanzwert(fd, "langfr_wertpapiere", tag)
+        b.langfr_wertpapiere = lw.wert if lw else 0.0
+        um, kv = bilanzwert(fd, "umlaufvermoegen", tag), bilanzwert(fd, "kurzfr_verbindlichkeiten", tag)
+        if um is not None and kv is not None and cash is not None:
+            st = schulden_teile(fd, tag)
+            b.nwc = um.wert - cash - (kv.wert - (st[1] if st else 0.0))
+            teile += [um, kv]
+        b.quelle = "; ".join(x for x in (_quellen(*teile), schulden_quelle, cash_quelle, mk_quelle) if x)
+    else:
+        b.quelle = "; ".join(x for x in (_quellen(*teile), mk_quelle) if x)
+    b.datenstand = _iso(max([w.ende for w in teile] + ([tag] if tag else [])))
+    return b
+
+
 def ev_ebit_historie(fd: Finanzdaten) -> Ergebnis:
     e = Ergebnis("ev_ebit_historie", hinweis=_ttm_hinweis(fd))
     ebit = _ttm(fd, "ebit")

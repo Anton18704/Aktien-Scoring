@@ -12,6 +12,8 @@ from collections import defaultdict
 import pandas as pd
 
 from kern import dcf as dcf_modell
+from kern import dcf_modell as eigenes
+from kern.format import zahl
 from kern.gesamtscore import Gesamt, einschaetzung_score, gesamtscore, kategorie_score
 from kern.konfig import KATEGORIEN, lade_dcf, lade_schwellen, standardgewichte
 from kern.punkte import punkte_fuer
@@ -90,9 +92,59 @@ def dcf_zeile(analyse: dict, erg, eingaben) -> dict:
     return zeile
 
 
-def mit_dcf(zeilen: list[dict], analyse: dict, titel: dict, manuell, schwellen: dict, dcf_cfg: dict) -> list[dict]:
-    erg, eingaben = dcf_berechnen(analyse, titel, manuell, schwellen, dcf_cfg)
-    return [z for z in zeilen if z["schluessel"] != "dcf_sicherheitsmarge"] + [dcf_zeile(analyse, erg, eingaben)]
+def modell_vorgaben(con, titel: dict, dcf_cfg: dict) -> dict:
+    """Startwerte für Beta und Exit-Multiple im eigenen DCF-Modell (Damodaran-Sektordaten, sonst Standard)."""
+    sektor = db.sektor(titel)
+    d = ((db.einstellung(con, "sektorfaktoren") or {}).get("sektoren") or {}).get(sektor) or {}
+    v = {"sektor": sektor, "erp": float(dcf_cfg["marktrisikopraemie"]),
+         "g_ewig": float(dcf_cfg["szenarien"]["base"]["langfr_wachstum"]),
+         "beta": 1.0, "beta_quelle": "Standardwert 1,0 (keine Damodaran-Daten – Seite Sektoren & Zyklus aktualisieren)",
+         "exit_multiple": 12.0, "multiple_quelle": "Standardwert 12 (keine Damodaran-Daten)"}
+    if d.get("beta"):
+        v["beta"], v["beta_quelle"] = float(d["beta"]), f"Damodaran, Sektor {sektor}"
+    if d.get("ev_ebitda"):
+        v["exit_multiple"] = min(max(float(d["ev_ebitda"]), 6.0), 20.0)
+        v["multiple_quelle"] = f"Damodaran EV/EBITDA, Sektor {sektor} (begrenzt auf 6–20)"
+    return v
+
+
+def modell_basis(analyse: dict):
+    roh = analyse.get("modell")
+    return eigenes.ModellBasis.aus_dict(json.loads(roh)) if roh else None
+
+
+def modell_zeile(analyse: dict, modell: dict) -> dict | None:
+    """DCF-Sicherheitsmarge aus dem eigenen Modell; None, wenn die Analyse keine Modelldaten hat."""
+    basis = modell_basis(analyse)
+    if basis is None:
+        return None
+    a = eigenes.Annahmen.aus_dict(modell["annahmen"])
+    erg = eigenes.rechnen(a, basis)
+    zeile = {"analyse_id": analyse["id"], "schluessel": "dcf_sicherheitsmarge", "kategorie": "A",
+             "rohwert": None, "fixpunkte": None, "punkte_damals": None, "quelle": basis.quelle,
+             "datenstand": basis.datenstand, "grund": erg.grund, "details": "",
+             "hinweis": f"eigenes DCF-Modell vom {modell['zeitpunkt'][:10]}"}
+    if erg.grund is None:
+        zeile["rohwert"] = erg.sicherheitsmarge
+        zeile["details"] = (f"eigenes Modell: fairer Wert {zahl(erg.fairer_wert, 2)} {basis.waehrung} vs. Kurs "
+                            f"{zahl(basis.kurs, 2)}; WACC {zahl(erg.wacc, 2)} %, ewiges Wachstum "
+                            f"{zahl(a.g_ewig, 2)} %, Exit-Multiple {zahl(a.exit_multiple, 2)}× EBITDA")
+    return zeile
+
+
+def mit_dcf(zeilen: list[dict], analyse: dict, titel: dict, manuell, schwellen: dict, dcf_cfg: dict,
+            modell: dict | None = None) -> list[dict]:
+    """Ergänzt die (live berechnete) DCF-Sicherheitsmarge.
+
+    Ist ein eigenes DCF-Modell mit „für den Score verwenden“ gespeichert, ersetzt es das automatische DCF.
+    """
+    zeile = None
+    if modell and modell.get("im_score"):
+        zeile = modell_zeile(analyse, modell)
+    if zeile is None:
+        erg, eingaben = dcf_berechnen(analyse, titel, manuell, schwellen, dcf_cfg)
+        zeile = dcf_zeile(analyse, erg, eingaben)
+    return [z for z in zeilen if z["schluessel"] != "dcf_sicherheitsmarge"] + [zeile]
 
 
 def punkte_zeile(zeile: dict, schwellen: dict) -> float | None:
@@ -153,8 +205,8 @@ def uebersicht(con) -> pd.DataFrame:
     einsch = defaultdict(list)
     for e in db.einschaetzungen_alle(con):
         einsch[e["ticker"]].append(e)
-    analysen = {r["id"]: dict(r) for r in con.execute("SELECT id, zeitpunkt, dcf FROM analysen")}
-    manuell, dcf_cfg = db.dcf_manuell_alle(con), dcf_konfig(con)
+    analysen = {r["id"]: dict(r) for r in con.execute("SELECT id, zeitpunkt, dcf, modell FROM analysen")}
+    manuell, dcf_cfg, modelle = db.dcf_manuell_alle(con), dcf_konfig(con), db.dcf_modelle_alle(con)
     makro, makro_aktiv = makro_stand(con)
 
     zeilen = []
@@ -163,7 +215,8 @@ def uebersicht(con) -> pd.DataFrame:
         if aid is None:
             continue
         e = einsch[t["ticker"]][-1] if einsch[t["ticker"]] else None
-        kz = mit_dcf(alle_zeilen[aid], analysen[aid], t, manuell.get(t["ticker"]), schwellen, dcf_cfg)
+        kz = mit_dcf(alle_zeilen[aid], analysen[aid], t, manuell.get(t["ticker"]), schwellen, dcf_cfg,
+                     modelle.get(t["ticker"]))
         scores, g = bewertung(kz, e, schwellen, gewichte, aktiv)
         f = sektorfaktor(makro, db.sektor(t))
         score_makro = mit_makro(g.score, f, makro_aktiv)
@@ -209,9 +262,10 @@ def verlauf(con, ticker: str) -> pd.DataFrame:
     for z in db.kennzahlen_fuer(con, [a["id"] for a in analysen]):
         zeilen[z["analyse_id"]].append(z)
     titel, manuell, dcf_cfg = db.titel(con, ticker), db.dcf_manuell(con, ticker), dcf_konfig(con)
+    modell = db.dcf_modell(con, ticker)
     daten = []
     for a, e in zip(analysen, einsch):
-        kz = mit_dcf(zeilen[a["id"]], a, titel, manuell, schwellen, dcf_cfg)
+        kz = mit_dcf(zeilen[a["id"]], a, titel, manuell, schwellen, dcf_cfg, modell)
         scores, g = bewertung(kz, e, schwellen, gewichte, aktiv)
         daten.append({"Zeitpunkt": pd.Timestamp(a["zeitpunkt"]), "Gesamtscore": g.score,
                       "Hinweis": markierung(g, schwellen), **{k: scores[k] for k in KATEGORIEN}})
@@ -230,8 +284,8 @@ def kategorie_ansicht(con, kategorie: str) -> pd.DataFrame:
     for e in db.einschaetzungen_alle(con):
         einsch[e["ticker"]].append(e)
     namen = {s: k["name"] for s, k in schwellen["kennzahlen"].items() if k["kategorie"] == kategorie}
-    analysen = {r["id"]: dict(r) for r in con.execute("SELECT id, zeitpunkt, dcf FROM analysen")}
-    manuell, dcf_cfg = db.dcf_manuell_alle(con), dcf_konfig(con)
+    analysen = {r["id"]: dict(r) for r in con.execute("SELECT id, zeitpunkt, dcf, modell FROM analysen")}
+    manuell, dcf_cfg, modelle = db.dcf_manuell_alle(con), dcf_konfig(con), db.dcf_modelle_alle(con)
     makro, makro_aktiv = makro_stand(con)
     einheiten = {s: k["einheit"] for s, k in schwellen["kennzahlen"].items()}
 
@@ -241,7 +295,8 @@ def kategorie_ansicht(con, kategorie: str) -> pd.DataFrame:
         if aid is None:
             continue
         e = einsch[t["ticker"]][-1] if einsch[t["ticker"]] else None
-        kz = mit_dcf(alle_zeilen[aid], analysen[aid], t, manuell.get(t["ticker"]), schwellen, dcf_cfg)
+        kz = mit_dcf(alle_zeilen[aid], analysen[aid], t, manuell.get(t["ticker"]), schwellen, dcf_cfg,
+                     modelle.get(t["ticker"]))
         scores, g = bewertung(kz, e, schwellen, gewichte, aktiv)
         zeile = {"Name": t["name"], "Ticker": t["ticker"], "Sektor": db.sektor(t),
                  "Kategorie-Score": None if scores[kategorie] is None else round(scores[kategorie], 1)}

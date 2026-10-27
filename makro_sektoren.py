@@ -86,6 +86,7 @@ def sektoren_berechnen(cfg: dict, staende: dict, dam: dict, etf_kurse: dict,
                                      etf_abweichung=zyklus.etf_trendabweichung(kurse) if kurse is not None else None)
         eintrag = st.als_dict()
         eintrag["kgv_historie"] = d.get("kgv_historie", {})
+        eintrag["ev_ebitda"] = d.get("ev_ebitda")
         eintrag["text"] = zyklus.faktor_text(eintrag, cfg)
         sektoren[sektor] = eintrag
     return sektoren

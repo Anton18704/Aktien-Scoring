@@ -12,6 +12,7 @@ SEITE_DETAIL = "seiten/detail.py"
 SEITE_KATEGORIE = "seiten/kategorie.py"
 SEITE_EINSTELLUNGEN = "seiten/einstellungen.py"
 SEITE_SEKTOREN = "seiten/sektoren.py"
+SEITE_DCF = "seiten/dcf_modell.py"
 
 
 @st.cache_resource
@@ -47,6 +48,25 @@ def einrichtung_pruefen() -> bool:
 def zu_detail(ticker: str):
     st.session_state["ticker"] = ticker
     st.switch_page(SEITE_DETAIL)
+
+
+def titel_wahl(titel_liste: list[dict], key: str) -> str:
+    """Auswahlfeld für den Titel. Die Wahl gilt seitenübergreifend (st.session_state["ticker"]).
+
+    Mit festem Schlüssel statt wechselndem ``index`` – sonst hält Streamlit das Feld nach jedem
+    Wechsel für ein neues Feld und verwirft jede zweite Auswahl.
+    """
+    ss = st.session_state
+    tickers = [t["ticker"] for t in titel_liste]
+    namen = {t["ticker"]: f"{t['name']} ({t['ticker']})" for t in titel_liste}
+    start = ss.get("ticker") or st.query_params.get("ticker")
+    if start in tickers:
+        ss[key] = start
+    elif ss.get(key) not in tickers:
+        ss[key] = tickers[0]
+    st.selectbox("Titel", tickers, key=key, format_func=namen.get, on_change=lambda: ss.update(ticker=ss[key]))
+    ss["ticker"] = ss[key]
+    return ss[key]
 
 
 def zu_kategorie(kategorie: str):

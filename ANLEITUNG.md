@@ -61,6 +61,7 @@ Datei (`aktien.db`) auf deinem Laptop speichert.
 | **Import** | Firmennamen oder Ticker eintippen (z. B. „coca cola“, „general mills“, „AAPL“), Treffer auswählen, analysieren. Oder eine CSV-Datei mit einer Spalte `Ticker` hochladen. |
 | **Detailansicht** | Bei neuen Titeln zuerst deine Einschätzung (4 Regler, 1 Satz Begründung, „Ich liege falsch, wenn …“). Danach Netzdiagramm, Beiträge, alle Kennzahlen mit Rohwert, Punkten, Rechenweg, Quelle und Datenstand, Verlauf. Sektor hier von Hand ändern. |
 | **Kategorieansicht** | Alle Titel nach einer Kategorie sortiert, mit den Rohwerten. |
+| **DCF-Modell** | Dein eigenes Bewertungsmodell je Titel in drei Schritten: ① **Annahmen** (Umsatzwachstum und EBIT-Marge je Jahr, Steuern, Abschreibungen, Investitionen, Working Capital, Zinssatz/WACC, ewiges Wachstum, Exit-Multiple), ② **Free-Cashflow-Rechnung** je Jahr, ③ **Abzinsung** mit Zinssatz, Diskontfaktor und Barwert je Jahr, Endwert, fairer Wert je Aktie und Empfindlichkeitstabellen. Alles ist mit Werten aus den Abschlüssen vorbelegt. „Modell speichern“ + „Für den Score verwenden“ ersetzt die automatische DCF-Sicherheitsmarge. |
 | **Sektoren & Zyklus** | Zyklusuhr aller 11 Sektoren, Sektorfaktor je Sektor, jeder Makro-Indikator mit Ampel und Richtung, Sektor-KGV-Historie. Knopf „Makrodaten aktualisieren“ (ca. 1 Minute, am besten wöchentlich). |
 | **Einstellungen** | Gewichte (Regler), Kategorien an/aus, Standard wiederherstellen, Schwellen ansehen, E-Mail. |
 
@@ -118,6 +119,16 @@ Die Sektor-Zuordnung steht in `config/sic_sektoren.yaml`.
   In der Detailansicht: fairer Wert je Szenario, Annahmen-Tabelle, Empfindlichkeitstabelle,
   Reverse DCF (welches Wachstum im Kurs steckt) und **Annahmen von Hand festlegen** pro Titel:
   Wachstum je Szenario und ein normalisierter Free Cashflow ohne Sondereffekte (gilt für alle Szenarien).
+- **Eigenes DCF-Modell** (Seite „DCF-Modell“): rechnet mit dem Free Cashflow an alle Kapitalgeber
+  (Umsatz × EBIT-Marge – Steuern + Abschreibungen – Capex – Zunahme Working Capital) und zinst mit dem
+  WACC ab: Eigenkapitalkosten = risikofreier Zins + Beta × Marktrisikoprämie, WACC = gewichtet mit dem
+  Schuldenanteil (Zinsen nach Steuern). Diskontfaktor = 1 ÷ (1 + WACC)^t (wahlweise Jahresmitte: t – 0,5).
+  Endwert: ewiges Wachstum (Gordon), Exit-Multiple auf das EBITDA oder Durchschnitt; zur Kontrolle wird
+  angezeigt, welches Multiple bzw. Wachstum der jeweils andere Endwert bedeutet. Unternehmenswert –
+  Nettoschulden = Eigenkapitalwert ÷ Aktien = fairer Wert. Vorschläge: Wachstum = geglättetes
+  Umsatzwachstum (Jahre 1–5, danach sinkend), Margen und Quoten = Durchschnitt der Vergangenheit, Beta und
+  EV/EBITDA aus den Damodaran-Sektordaten. Gespeicherte Modelle rechnen bei jeder neuen Analyse mit deinen
+  Annahmen und den neuen Zahlen (Umsatz, Kurs, Schulden) weiter.
 - **Marktkapitalisierung:** Aktienanzahl vom Deckblatt des letzten Berichts × letzter Schlusskurs.
   Ist die Kurswährung eine andere als die Berichtswährung, werden die betroffenen
   Kennzahlen ausgelassen (keine Umrechnung).

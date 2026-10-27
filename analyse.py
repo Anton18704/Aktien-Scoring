@@ -7,7 +7,7 @@ from daten.kurse import KursFehler, lade_kurse
 from daten.sec import SecClient, SecFehler
 from daten.xbrl import finanzdaten_aus
 from daten.makro import risikofreier_zins
-from kern.kennzahlen import alle_berechnen, dcf_eingaben
+from kern.kennzahlen import alle_berechnen, dcf_eingaben, modell_basis
 from kern.konfig import KonfigFehler, lade_dcf, lade_schwellen, lade_settings, sektor_fuer_sic
 from kern.punkte import punkte_fuer
 from speicher import db
@@ -43,6 +43,7 @@ class Rohdaten:
     ergebnisse: list
     hinweise: list[str]
     dcf: object = None          # kern.dcf.DcfEingaben
+    modell: object = None       # kern.dcf_modell.ModellBasis
 
 
 def kennzahlen_berechnen(ticker: str, frisch: bool = False) -> Rohdaten:
@@ -88,7 +89,7 @@ def kennzahlen_berechnen(ticker: str, frisch: bool = False) -> Rohdaten:
     if zins_hinweis:
         hinweise.append(zins_hinweis)
     return Rohdaten(ticker, cik, name, str(sub.get("sic") or ""), sub.get("sicDescription", ""),
-                    fd, alle_berechnen(fd), hinweise, dcf)
+                    fd, alle_berechnen(fd), hinweise, dcf, modell_basis(fd))
 
 
 def analysieren(con, ticker: str, frisch: bool = False) -> AnalyseErgebnis:
@@ -102,6 +103,7 @@ def analysieren(con, ticker: str, frisch: bool = False) -> AnalyseErgebnis:
         punkte_von=lambda e: punkte_fuer(e.schluessel, e.rohwert, e.fixpunkte, schwellen),
         hinweise=r.hinweise,
         dcf=r.dcf.als_dict() if r.dcf else None,
+        modell=r.modell.als_dict() if r.modell else None,
     )
     return AnalyseErgebnis(r.ticker, r.name, analyse_id, r.hinweise)
 

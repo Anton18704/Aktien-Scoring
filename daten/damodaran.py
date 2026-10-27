@@ -2,6 +2,7 @@
 
 - KGV je Branche (aggregiert: Marktkapitalisierung ÷ Gewinn), aktuell und aus dem Archiv
 - Beta je Branche (Durchschnitt der letzten 5 Jahre)
+- EV/EBITDA je Branche (aktuell, nur Firmen mit positivem EBITDA) – Exit-Multiple im eigenen DCF-Modell
 Die Dateien werden 30 Tage zwischengespeichert.
 """
 from __future__ import annotations
@@ -35,8 +36,9 @@ def _laden(name: str, url: str) -> bytes | None:
     return antwort.content
 
 
-def _tabelle(inhalt: bytes, spalte_beginnt: str) -> dict[str, float]:
-    """Branche → Wert aus der Spalte, deren Überschrift mit ``spalte_beginnt`` beginnt."""
+def _tabelle(inhalt: bytes, spalte_beginnt: str, genau: bool = False) -> dict[str, float]:
+    """Branche → Wert aus der (ersten) Spalte, deren Überschrift mit ``spalte_beginnt`` beginnt
+    (bei ``genau`` = die genau so heißt)."""
     import xlrd
 
     buch = xlrd.open_workbook(file_contents=inhalt)
@@ -44,7 +46,8 @@ def _tabelle(inhalt: bytes, spalte_beginnt: str) -> dict[str, float]:
     for r in range(blatt.nrows):
         if str(blatt.cell_value(r, 0)).strip() == "Industry Name":
             kopf = [str(c.value).strip() for c in blatt.row(r)]
-            spalte = next((i for i, k in enumerate(kopf) if k.startswith(spalte_beginnt)), None)
+            spalte = next((i for i, k in enumerate(kopf)
+                           if (k == spalte_beginnt if genau else k.startswith(spalte_beginnt))), None)
             if spalte is None:
                 return {}
             werte = {}
@@ -74,10 +77,10 @@ def _je_sektor(werte: dict[str, float], zuo: dict[str, list[str]], min_wert: flo
 
 
 def sektordaten(jahre_zurueck: int = 11) -> tuple[dict[str, dict], list[str]]:
-    """{Sektor: {"kgv": aktuell, "kgv_historie": {Jahr: KGV}, "beta": Beta}} und Hinweise."""
+    """{Sektor: {"kgv": aktuell, "kgv_historie": {Jahr: KGV}, "beta": Beta, "ev_ebitda": EV/EBITDA}} und Hinweise."""
     hinweise: list[str] = []
     zuo = zuordnung()
-    ergebnis = {s: {"kgv": None, "kgv_historie": {}, "beta": None} for s in zuo}
+    ergebnis = {s: {"kgv": None, "kgv_historie": {}, "beta": None, "ev_ebitda": None} for s in zuo}
 
     aktuell = _laden("pedata.xls", f"{BASIS}/datasets/pedata.xls")
     if aktuell is None:
@@ -101,4 +104,9 @@ def sektordaten(jahre_zurueck: int = 11) -> tuple[dict[str, dict], list[str]]:
         tab = _tabelle(betas, "Average (") or _tabelle(betas, "Beta")
         for s, v in _je_sektor(tab, zuo).items():
             ergebnis[s]["beta"] = v
+
+    vebitda = _laden("vebitda.xls", f"{BASIS}/datasets/vebitda.xls")
+    if vebitda is not None:
+        for s, v in _je_sektor(_tabelle(vebitda, "EV/EBITDA", genau=True), zuo).items():
+            ergebnis[s]["ev_ebitda"] = v
     return ergebnis, hinweise

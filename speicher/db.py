@@ -31,7 +31,8 @@ CREATE TABLE IF NOT EXISTS analysen (
     zeitpunkt   TEXT NOT NULL,
     waehrung    TEXT,
     hinweise    TEXT,
-    dcf         TEXT
+    dcf         TEXT,
+    modell      TEXT                    -- Zahlen für das eigene DCF-Modell (JSON)
 );
 CREATE TABLE IF NOT EXISTS kennzahlen (
     id          INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -61,6 +62,14 @@ CREATE TABLE IF NOT EXISTS dcf_manuell (
     zeitpunkt   TEXT NOT NULL,
     bear REAL, base REAL, bull REAL,
     start_fcf   REAL,
+    notiz       TEXT
+);
+CREATE TABLE IF NOT EXISTS dcf_modelle (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    ticker      TEXT NOT NULL REFERENCES titel(ticker) ON DELETE CASCADE,
+    zeitpunkt   TEXT NOT NULL,
+    annahmen    TEXT,                   -- JSON; leer = Modell verworfen
+    im_score    INTEGER NOT NULL DEFAULT 0,
     notiz       TEXT
 );
 CREATE TABLE IF NOT EXISTS sektor_verlauf (
@@ -99,7 +108,8 @@ def verbinden(pfad: Path | str = DB_DATEI) -> sqlite3.Connection:
 def _migrieren(con) -> None:
     """Ältere Datenbanken um neue Spalten ergänzen (bestehende Daten bleiben erhalten)."""
     for tabelle, spalte, typ in (("einschaetzungen", "gegenthese", "TEXT"), ("analysen", "dcf", "TEXT"),
-                                 ("dcf_manuell", "start_fcf", "REAL"), ("sektor_verlauf", "phase_roh", "TEXT")):
+                                 ("dcf_manuell", "start_fcf", "REAL"), ("sektor_verlauf", "phase_roh", "TEXT"),
+                                 ("analysen", "modell", "TEXT")):
         spalten = {r["name"] for r in con.execute(f"PRAGMA table_info({tabelle})")}
         if spalte not in spalten:
             con.execute(f"ALTER TABLE {tabelle} ADD COLUMN {spalte} {typ}")
@@ -146,10 +156,12 @@ def sektor(t: dict) -> str:
 
 # ---------------------------------------------------------------- Analysen
 
-def analyse_speichern(con, ticker, waehrung, ergebnisse, kategorie_von, punkte_von, hinweise, dcf=None) -> int:
-    cur = con.execute("INSERT INTO analysen (ticker, zeitpunkt, waehrung, hinweise, dcf) VALUES (?, ?, ?, ?, ?)",
-                      (ticker, jetzt(), waehrung, json.dumps(hinweise, ensure_ascii=False),
-                       json.dumps(dcf, ensure_ascii=False) if dcf is not None else None))
+def analyse_speichern(con, ticker, waehrung, ergebnisse, kategorie_von, punkte_von, hinweise, dcf=None,
+                      modell=None) -> int:
+    als_json = lambda d: json.dumps(d, ensure_ascii=False) if d is not None else None  # noqa: E731
+    cur = con.execute("INSERT INTO analysen (ticker, zeitpunkt, waehrung, hinweise, dcf, modell) VALUES (?, ?, ?, ?, ?, ?)",
+                      (ticker, jetzt(), waehrung, json.dumps(hinweise, ensure_ascii=False), als_json(dcf),
+                       als_json(modell)))
     analyse_id = cur.lastrowid
     con.executemany(
         """INSERT INTO kennzahlen (analyse_id, schluessel, kategorie, rohwert, fixpunkte, punkte_damals,
@@ -236,6 +248,35 @@ def dcf_manuell_alle(con) -> dict[str, dict]:
     for r in con.execute("SELECT * FROM dcf_manuell ORDER BY zeitpunkt, id"):
         ergebnis[r["ticker"]] = _manuell_zahlen(r)
     return {t: r for t, r in ergebnis.items() if any(r[k] is not None for k in MANUELL_FELDER)}
+
+
+# ---------------------------------------------------------------- Eigenes DCF-Modell
+
+def dcf_modell_speichern(con, ticker, annahmen: dict | None, im_score: bool = False, notiz: str = "") -> None:
+    """Neuer Eintrag (der letzte gilt, ältere bleiben als Verlauf). ``annahmen`` None = Modell verwerfen."""
+    con.execute("INSERT INTO dcf_modelle (ticker, zeitpunkt, annahmen, im_score, notiz) VALUES (?,?,?,?,?)",
+                (ticker, jetzt(), None if annahmen is None else json.dumps(annahmen), int(bool(im_score)),
+                 (notiz or "").strip()))
+    con.commit()
+
+
+def _modell(r) -> dict | None:
+    if r is None or r["annahmen"] is None:
+        return None
+    return {**dict(r), "annahmen": json.loads(r["annahmen"]), "im_score": bool(r["im_score"])}
+
+
+def dcf_modell(con, ticker) -> dict | None:
+    """Zuletzt gespeichertes eigenes Modell oder None."""
+    return _modell(con.execute("SELECT * FROM dcf_modelle WHERE ticker = ? ORDER BY zeitpunkt DESC, id DESC LIMIT 1",
+                               (ticker,)).fetchone())
+
+
+def dcf_modelle_alle(con) -> dict[str, dict]:
+    letzte = {}
+    for r in con.execute("SELECT * FROM dcf_modelle ORDER BY zeitpunkt, id"):
+        letzte[r["ticker"]] = r
+    return {t: m for t, m in ((t, _modell(r)) for t, r in letzte.items()) if m is not None}
 
 
 # ---------------------------------------------------------------- Sektor-Verlauf
